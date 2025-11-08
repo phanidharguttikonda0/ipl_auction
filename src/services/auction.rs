@@ -1,9 +1,10 @@
 use sqlx::{query_scalar, Pool, Postgres};
 use sqlx::postgres::PgPoolOptions;
+use crate::models::app_state::Player;
 
 #[derive(Debug, Clone)]
 pub struct DatabaseAccess {
-    connection: Pool<Postgres>
+    pub(crate) connection: Pool<Postgres>
 }
 
 impl DatabaseAccess {
@@ -21,8 +22,8 @@ impl DatabaseAccess {
             .bind(participant_id)
             .fetch_one(&self)
             .await;
-        
-        match team_name { 
+
+        match team_name {
             Ok(team_name) => {
                 Ok(team_name)
             },
@@ -31,6 +32,18 @@ impl DatabaseAccess {
                 Err(err)
             }
         }
+    }
 
+    pub async fn get_players(&self) -> Result<Vec<Player>, sqlx::Error> {
+        let players = sqlx::query_as::<_, Player>("SELECT * FROM players").fetch_all(&self).await;
+        match players {
+            Ok(players) => {
+                Ok(players)
+            },
+            Err(err) => {
+                tracing::warn!("error occured while getting players {}", err) ;
+                Err(err)
+            }
+        }
     }
 }

@@ -27,7 +27,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     // is already exists or not
     let mut redis_connection = RedisConnection::new();
     let result = app_state.database_connection.get_team_name(participant_id).await;  // getting team name from the participant
-    let team_name = match result { 
+    let team_name = match result {
         Ok(result) => {
             result
         },Err(err ) => {
@@ -69,13 +69,18 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             sender.send(Message::text(msg)).await.unwrap(); // we are sending the message to the client
         }
     }) ;
-    
-    
+
+
     // till now what happened was :
-    /*
+    /* when the user clicked join room, by entering room_id, he will get the available teams, then he can choose the team,
+    * and click continue, now at that point it will hit the end point and returns participant id, now using that participant-id
+    * and room-id the websocket connection will be created and he is taken to the auction room , and for the creator of the room,
+    * he will be having button called start auction. when auction starts the state of the room changes, so no other people can join
+    * only already an existing participant can join, when he was joining his participant id was in the list then only he
+    * can join.
     */
-    
-    
+
+
 
     // let's read continuous messages from the client
     while let Some(message) = receiver {
@@ -85,13 +90,25 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 tracing::info!("Received text message: {}", text);
 
                 // if a bid message was sent, then we are going to check for allowance
-
+                if text.to_string() == "start" {
+                    // we are going to return the first player from the auction
+                }
 
                 // text was start, need to return the first player
 
             },
             Message::Close(_) => {
                 tracing::info!("Client disconnected");
+                // we are removing the disconnected client, such that the unbounded channel will not overload , if queue is filled with multiple disconnected message to client
+                let value = app_state.rooms.write().unwrap() ;
+                let mut index: u8 = 0 ;
+                for participant in value.get(&room_id).unwrap().iter() {
+                    if participant.0 == participant_id {
+                        value.get(&room_id).unwrap().remove(index) ;
+                    }
+                    index += 1 ;
+                }
+                drop(value) ;
                 return;
             }
         }

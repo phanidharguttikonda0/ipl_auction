@@ -40,7 +40,7 @@ pub struct AuctionParticipant {
 }
 
 impl AuctionParticipant {
-    pub fn new(id: i32, team_name: String) -> Self {
+    pub fn new(id: i32, team_name: Teams) -> Self {
         Self {
             id,
             team_name,
