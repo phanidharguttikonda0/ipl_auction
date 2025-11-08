@@ -1,0 +1,17 @@
+[package]
+name = "ipl_auction"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.6", features = ["ws", "tokio"] }
+tracing = "0.1.41"
+tokio = {version = "1.48.0", features = ["full"]}
+tracing-subscriber = "0.3.20"
+serde_json = "1.0.145"
+jsonwebtoken = "10.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
+dotenv = "0.15.0"
+redis = { version = "0.32.7", features = ["tokio-comp"] }
+redis-derive = "0.2.0"
+sqlx = {version = "0.8.6", features = ["postgres", "runtime-tokio-native-tls"]}
