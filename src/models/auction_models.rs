@@ -55,5 +55,22 @@ pub struct Bid {
     pub participant_id: i32,
     pub player_id: i32,
     pub bid_amount: f32,
-    pub team: Teams
+    pub base_price: f32,
+}
+
+impl Bid {
+    pub fn new(participant_id: i32, player_id: i32, bid_amount: f32, base_price: f32) -> Self {
+        Bid {
+            participant_id,
+            player_id,
+            bid_amount,
+            base_price,
+        }
+    }
+}
+
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct BidOutput {
+    pub team : String,
+    pub bidAmount: f32,
 }

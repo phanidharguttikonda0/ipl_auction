@@ -4,7 +4,7 @@ use axum::extract::ws::{WebSocket, Message};
 use axum::response::IntoResponse;
 use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
-use crate::models::auction_models::{AuctionParticipant, AuctionRoom};
+use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOutput};
 use crate::services::auction_room::RedisConnection;
 
 pub async fn ws_handler(ws: WebSocketUpgrade, Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -92,7 +92,38 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 // if a bid message was sent, then we are going to check for allowance
                 if text.to_string() == "start" {
                     // we are going to return the first player from the auction
+                    let player = redis_connection.get_player(1).await ;
+                    let message ;
+                    match player {
+                       Ok(player) => {
+                           message = Message::from(serde_json::to_string(&player).unwrap()) ;
+                           // here we are going add the player as Bid to the redis
+                           Bid::new(participant_id, player.id, 0.0) ;
+                       } ,
+                        Err(err) => {
+                            tracing::info!("Unable to get the player-id, may be a technical Issue") ;
+                            message = Message::text("Technical Glitch") ;
+                        }
+                    } ;
+                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+                }else if text.to_string() == "bid" {
+                    // the participant has bided
+                   let result =  redis_connection.new_bid(participant_id, room_id.clone()).await ;
+                    let message ;
+                    match result {
+                       Ok(amount) => {
+                           message = Message::from(serde_json::to_string(&BidOutput{
+                               bidAmount: amount,
+                               team: team_name.clone()
+                           }).unwrap())
+                       }, Err(err) => {
+                            message = Message::text("Bid is not Allowed,Due to Low Balance and player ratio") ;
+                        }
+                    } ;
+                    broadcast_handler(message,room_id.clone(),&app_state).await ;
                 }
+
+                // next logic to sell
 
                 // text was start, need to return the first player
 
@@ -128,10 +159,10 @@ async fn broadcast_handler(msg: Message, room_id: String, state: &mut AppState) 
     }
 } // lock drops over here
 
-async fn bid_allowance_handler(room_id: String, participant_id: String, current_bid: f32) -> bool {
+pub async fn bid_allowance_handler(room_id: String, participant_id: i32, current_bid: f32, balance: f32, total_players_brought: u8) -> bool {
     // we will fetch from redis for the current remaining balance of the participant
-    let balance:f32 = 0.0 ; // current balance of the participant
-    let total_players_brought: u8 = 4 ;
+    // let balance:f32 = 0.0 ; // current balance of the participant
+    // let total_players_brought: u8 = 4 ;
     let total_players_required: i8 = (14 - total_players_brought) as i8;
     let money_required: f32 = (total_players_required) as f32 * 0.30 ;
     if money_required <= (balance-current_bid) {
