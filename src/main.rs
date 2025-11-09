@@ -1,9 +1,11 @@
 use std::sync::{Arc, RwLock};
 use axum::Router;
 use axum::routing::get;
+use tokio::task;
 use crate::auction::ws_handler;
 use crate::models::app_state::AppState;
 use crate::services::auction::DatabaseAccess;
+use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
 
 mod models;
@@ -25,13 +27,23 @@ async fn main() {
 
 
 async fn routes() -> Router {
-    let state = AppState {
-        rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        database_connection: DatabaseAccess::new(),
-    } ;
+    let state = Arc::new(
+        AppState {
+            rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            database_connection: DatabaseAccess::new(),
+        }
+    ) ;
+    let redis_url = std::env::var("REDIS_URL").unwrap();
+    task::spawn(async move {
+        if let Err(e) = listen_for_expiry_events(&format!("redis://{}:6379/", redis_url), state.clone()).await {
+            tracing::error!("Redis expiry listener failed: {:?}", e);
+        }
+    });
+
+
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     Router::new()
         .route("/ws/{room_id}/{participant_id}", get(ws_handler)) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
-        .with_state(Arc::new(state))
+        .with_state(state)
 }

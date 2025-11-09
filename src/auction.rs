@@ -81,7 +81,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     */
 
 
-
+    let expiry_time = std::env::var("BID_EXPIRY").unwrap().parse::<u8>().unwrap();
     // let's read continuous messages from the client
     while let Some(message) = receiver {
         tracing::info!("Received message: {:?}", message);
@@ -97,8 +97,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     match player {
                        Ok(player) => {
                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
-                           // here we are going add the player as Bid to the redis
-                           Bid::new(participant_id, player.id, 0.0) ;
+                           // here we are going to add the player as Bid to the redis
+                           Bid::new(0, player.id, 0.0, player.base_price) ; // no one yet bidded
                        } ,
                         Err(err) => {
                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
@@ -108,12 +108,12 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
                 }else if text.to_string() == "bid" {
                     // the participant has bided
-                   let result =  redis_connection.new_bid(participant_id, room_id.clone()).await ;
+                   let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
                     let message ;
                     match result {
                        Ok(amount) => {
                            message = Message::from(serde_json::to_string(&BidOutput{
-                               bidAmount: amount,
+                               bid_amount: amount,
                                team: team_name.clone()
                            }).unwrap())
                        }, Err(err) => {
@@ -123,8 +123,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
                 }
 
-                // next logic to sell
-
+                // sell logic will be executed automatically
+                
                 // text was start, need to return the first player
 
             },
@@ -146,7 +146,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     }
 }
 
-async fn broadcast_handler(msg: Message, room_id: String, state: &mut AppState) { // if we want to send a message to all the participants in the room, we use broadcaster
+pub async fn broadcast_handler(msg: Message, room_id: String, state: &mut AppState) { // if we want to send a message to all the participants in the room, we use broadcaster
     // over here we are going to get all the participants from the room-id
     // and send the message to all the participants
     let mut rooms = state.rooms.read().await;
@@ -160,9 +160,7 @@ async fn broadcast_handler(msg: Message, room_id: String, state: &mut AppState) 
 } // lock drops over here
 
 pub async fn bid_allowance_handler(room_id: String, participant_id: i32, current_bid: f32, balance: f32, total_players_brought: u8) -> bool {
-    // we will fetch from redis for the current remaining balance of the participant
-    // let balance:f32 = 0.0 ; // current balance of the participant
-    // let total_players_brought: u8 = 4 ;
+
     let total_players_required: i8 = (14 - total_players_brought) as i8;
     let money_required: f32 = (total_players_required) as f32 * 0.30 ;
     if money_required <= (balance-current_bid) {

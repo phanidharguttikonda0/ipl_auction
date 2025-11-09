@@ -33,7 +33,6 @@ impl DatabaseAccess {
             }
         }
     }
-
     pub async fn get_players(&self) -> Result<Vec<Player>, sqlx::Error> {
         let players = sqlx::query_as::<_, Player>("SELECT * FROM players").fetch_all(&self).await;
         match players {
@@ -46,4 +45,6 @@ impl DatabaseAccess {
             }
         }
     }
+
+
 }

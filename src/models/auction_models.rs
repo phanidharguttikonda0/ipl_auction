@@ -72,5 +72,11 @@ impl Bid {
 #[derive(Debug,Clone, Serialize, Deserialize)]
 pub struct BidOutput {
     pub team : String,
-    pub bidAmount: f32,
+    pub bid_amount: f32,
+}
+
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct SoldPlayer {
+    pub team_name: String,
+    pub sold_price: f32,
 }
