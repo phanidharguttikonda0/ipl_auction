@@ -1,4 +1,5 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
+use tokio::sync::RwLock;
 use axum::Router;
 use axum::routing::get;
 use tokio::task;
@@ -30,12 +31,13 @@ async fn routes() -> Router {
     let state = Arc::new(
         AppState {
             rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            database_connection: DatabaseAccess::new(),
+            database_connection: Arc::from(DatabaseAccess::new().await),
         }
     ) ;
     let redis_url = std::env::var("REDIS_URL").unwrap();
+    let state_ = state.clone();
     task::spawn(async move {
-        if let Err(e) = listen_for_expiry_events(&format!("redis://{}:6379/", redis_url), state.clone()).await {
+        if let Err(e) = listen_for_expiry_events(&format!("redis://{}:6379/", redis_url), state_).await {
             tracing::error!("Redis expiry listener failed: {:?}", e);
         }
     });

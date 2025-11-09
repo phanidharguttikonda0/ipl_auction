@@ -1,10 +1,11 @@
-use sqlx::{query_scalar, Pool, Postgres};
+use sqlx::{query_scalar, Pool, Postgres, Row};
 use sqlx::postgres::PgPoolOptions;
+use uuid::Uuid;
 use crate::models::app_state::Player;
 
 #[derive(Debug, Clone)]
 pub struct DatabaseAccess {
-    pub(crate) connection: Pool<Postgres>
+    pub connection: Pool<Postgres>
 }
 
 impl DatabaseAccess {
@@ -20,7 +21,7 @@ impl DatabaseAccess {
     pub async fn get_team_name(&self, participant_id: i32) -> Result<String, sqlx::Error> {
         let team_name = query_scalar::<_, String>("SELECT team_selected FROM participants WHERE id = $1")
             .bind(participant_id)
-            .fetch_one(&self)
+            .fetch_one(&self.connection)
             .await;
 
         match team_name {
@@ -34,7 +35,7 @@ impl DatabaseAccess {
         }
     }
     pub async fn get_players(&self) -> Result<Vec<Player>, sqlx::Error> {
-        let players = sqlx::query_as::<_, Player>("SELECT * FROM players").fetch_all(&self).await;
+        let players = sqlx::query_as::<_, Player>("SELECT * FROM players").fetch_all(&self.connection).await;
         match players {
             Ok(players) => {
                 Ok(players)
@@ -46,30 +47,29 @@ impl DatabaseAccess {
         }
     }
 
+
     pub async fn is_room_creator(
         &self,
         participant_id: i32,
-        room_id: uuid::Uuid,
+        room_id: String,
     ) -> Result<bool, sqlx::Error> {
-        let is_creator: bool = sqlx::query_scalar!(
-        r#"
+        let row = sqlx::query(
+            r#"
         SELECT CASE
                    WHEN r.creator_id = p.user_id THEN TRUE
                    ELSE FALSE
-               END AS "is_creator!"
+               END AS is_creator
         FROM participants p
         JOIN rooms r ON p.room_id = r.id
         WHERE p.id = $1 AND p.room_id = $2
-        "#,
-        participant_id,
-        room_id
-    )
-            .fetch_one(&self)
+        "#
+        )
+            .bind(participant_id)
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .fetch_one(&self.connection)
             .await?;
 
-        Ok(is_creator)
+        Ok(row.try_get::<bool, _>("is_creator")?)
     }
-
-
 
 }

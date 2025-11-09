@@ -9,10 +9,10 @@ pub struct RedisConnection {
 }
 
 impl RedisConnection {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let connection_url = std::env::var("REDIS_URL").unwrap();
         Self {
-            connection: redis::Client::open(format!("redis://{}:6379/",connection_url)).unwrap().get_multiplexed_async_connection().unwrap(),
+            connection: redis::Client::open(format!("redis://{}:6379/",connection_url)).unwrap().get_multiplexed_async_connection().await.unwrap(),
         }
     }
 
@@ -26,8 +26,8 @@ impl RedisConnection {
         match value {
             Ok(mut value) => {
                 value.current_bid  = Some(bid) ;
-                self.connection.set(room_id.clone(), value).await.expect("unable to set the updated value in new_bid");
-                let res = self.connection.set_ex(&timer_key, "active", expiry as u64).await;
+                self.connection.set::<_, _, ()>(room_id.clone(), value).await.expect("unable to set the updated value in new_bid");
+                 self.connection.set_ex::<_,_,()>(&timer_key, "active", expiry as u64).await.expect("unable to set the expiry");
                 Ok("Bid updated and TTL reset".to_string())
             },
             Err(e) => {
@@ -36,7 +36,7 @@ impl RedisConnection {
         }
     }
 
-    pub async fn add_participant(&mut self, participant_id: i32, room_id: String, participant: AuctionParticipant) -> Result<String, redis::RedisError> {
+    pub async fn add_participant(&mut self, room_id: String, participant: AuctionParticipant) -> Result<String, redis::RedisError> {
         let mut value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
         match value {
             Ok(mut value) => {
@@ -49,8 +49,8 @@ impl RedisConnection {
         }
     }
 
-    pub fn check_participant(&mut self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
-        let value = self.connection.get(room_id.clone()) ;
+    pub async fn check_participant(&mut self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
+        let value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
         match value {
             Ok(value) => {
                 for participant in value.participants {
@@ -69,7 +69,7 @@ impl RedisConnection {
     }
 
     pub async fn load_players_to_redis(&mut self, players: Vec<Player>) -> Result<(), redis::RedisError> {
-        let value = self.connection.get("players").await ;
+        let value: RedisResult<Vec<Player>> = self.connection.get("players").await ;
         match value {
             Ok(value) => {
                 tracing::info!("players already exists in redis") ;
@@ -87,7 +87,7 @@ impl RedisConnection {
         let value: RedisResult<Vec<Player>> = self.connection.get(player_id.clone()).await ;
         match value {
             Ok(value) => {
-                let player = value[player_id] ;
+                let player = value[player_id as usize].clone() ;
                 Ok(player)
             },
             Err(e) => {
@@ -117,15 +117,15 @@ impl RedisConnection {
                 let balance = participant.balance;
                 let players_brought = participant.total_players_brought;
                 // calculating bid allowance for the participant
-                let is_allowed = bid_allowance_handler(room_id.clone(), participant_id, previous_bid + next_bid_increment,
+                let is_allowed = bid_allowance_handler(room_id.clone(),  previous_bid + next_bid_increment,
                 balance, players_brought).await;
                 
                 if is_allowed {
                     room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, previous_bid + next_bid_increment, current_bid.base_price)) ;
 
-                    self.connection.set(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
+                    self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
                     // it gets restarted if any bid comes before 20 seconds
-                    let res = self.connection.set_ex(&timer_key, "active", expiry_time as u64).await;
+                    let res = self.connection.set_ex::<_,_, ()>(&timer_key, "active", expiry_time as u64).await;
 
                     Ok(previous_bid + next_bid_increment)
                 }else { 
@@ -205,20 +205,20 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
         }
         tracing::info!("we are going to update the balance of the participant") ;
         let details = get_participant_details(participant_id, &res.participants).unwrap() ;
-        res.participants[details.1].balance = res.participants[details.1].balance -  res.current_bid.clone().unwrap().bid_amount;
+        res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
         // need to update that particular participant purse or balance before storing the updated value in redis
         res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
-        conn.set(&room_id, res).await?;
+        conn.set::<_,_,()>(&room_id, res).await?;
         tracing::info!("we are going to broadcast the message to the room participant") ;
         broadcast_handler(message,room_id.clone(), &mut app_state ).await ;
         // we are going to get the next player and broadcasting the next player
         let next_player = player_id + 1 ;
-        let players = conn.get("players").await;
+        let players: RedisResult<Vec<Player>> = conn.get("players").await;
         let message;
         match players {
             Ok(players) => {
                 if ((next_player) as usize ) < players.len(){
-                    message = Message::from(serde_json::to_string(&players[next_player]).unwrap()) ;
+                    message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
                 }else{
                     message = Message::text("Auction Completed")
                 }

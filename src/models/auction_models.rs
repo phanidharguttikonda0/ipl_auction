@@ -34,13 +34,13 @@ impl AuctionRoom {
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
 pub struct AuctionParticipant {
     pub id: i32, // participant id
-    pub team_name: Teams, // team name
+    pub team_name: String, // team name
     pub balance: f32, // at start 100cr is the balance
     pub total_players_brought: u8,
 }
 
 impl AuctionParticipant {
-    pub fn new(id: i32, team_name: Teams) -> Self {
+    pub fn new(id: i32, team_name: String) -> Self {
         Self {
             id,
             team_name,
