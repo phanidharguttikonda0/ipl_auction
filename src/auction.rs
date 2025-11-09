@@ -35,6 +35,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             return;
         }
     } ;
+    // over here we are going to check room-status if room-status was not-started or pending, if it is finished, then return
     if let Some(vec) = rooms.get_mut(&room_id) {
         vec.push(tx) ;
         tracing::info!("Room exists, adding participant {}", participant_id);

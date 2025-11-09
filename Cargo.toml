@@ -2,7 +2,8 @@
 name = "ipl_auction"
 version = "0.1.0"
 edition = "2024"
-
+license-file = "LICENSE"
+authors = ["Guttikonda Phanidhar Reddy <phanidharguttikonda0@gmail.com>"]
 [dependencies]
 axum = { version = "0.8.6", features = ["ws", "tokio"] }
 tracing = "0.1.41"
