@@ -138,6 +138,30 @@ impl RedisConnection {
             }
         }
     }
+
+    pub async fn check_end_auction(&mut self, room_id: String) -> Result<bool, redis::RedisError> {
+        let room: RedisResult<AuctionRoom> = self.connection.get(&room_id).await ;
+        match room {
+            Ok(room) => {
+                tracing::info!("checking all the participants no of player brought") ;
+                let mut fail = true ;
+                for participant in room.participants.iter() {
+                    if participant.total_players_brought < 15 {
+                        fail = false ;
+                    }
+                }
+                if fail {
+                    Ok(false)
+                }else {
+                    Ok(true)
+                }
+            },
+            Err(e) => {
+                tracing::warn!("error occurred while getting room details from check_end_auction") ;
+                Err(e)
+            }
+        }
+    }
 }
 
 

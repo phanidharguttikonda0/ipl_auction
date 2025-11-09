@@ -121,11 +121,38 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         }
                     } ;
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
-                }
+                }else if text.to_string() == "end" {
+                    // ending the auction
 
-                // sell logic will be executed automatically
-                
-                // text was start, need to return the first player
+                    // check whether he was the creator of the room
+                    let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
+                    match result {
+                        Ok(result) => {
+                            if !result {
+                                sender.send(Message::text("You will not having permissions")).await.unwrap() ;
+                            }
+                        },
+                        Err(err) => {
+                            tracing::info!("getting error while is room_creator") ;
+                            sender.send(Message::text("Technical Issue")).await.unwrap();
+                        }
+                    }
+                    // second, check whether all the participants having least 15 players in their squad
+                    let res = redis_connection.check_end_auction(room_id.clone()).await ;
+                    let message ;
+                    match res {
+                        Ok(res) => {
+                            message = Message::text("exit") ;
+                        },
+                        Err(err) => {
+                            tracing::info!("Unable to get the room") ;
+                            message = Message::text("Till all participants brought at least 15 player") ;
+                        }
+                    } ;
+                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+                }else {
+                    sender.send(Message::text("Invalid Message")).await.unwrap();
+                }
 
             },
             Message::Close(_) => {
@@ -161,7 +188,7 @@ pub async fn broadcast_handler(msg: Message, room_id: String, state: &mut AppSta
 
 pub async fn bid_allowance_handler(room_id: String, participant_id: i32, current_bid: f32, balance: f32, total_players_brought: u8) -> bool {
 
-    let total_players_required: i8 = (14 - total_players_brought) as i8;
+    let total_players_required: i8 = (15 - total_players_brought) as i8;
     let money_required: f32 = (total_players_required) as f32 * 0.30 ;
     if money_required <= (balance-current_bid) {
         true

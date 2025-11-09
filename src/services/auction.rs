@@ -46,5 +46,30 @@ impl DatabaseAccess {
         }
     }
 
+    pub async fn is_room_creator(
+        &self,
+        participant_id: i32,
+        room_id: uuid::Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let is_creator: bool = sqlx::query_scalar!(
+        r#"
+        SELECT CASE
+                   WHEN r.creator_id = p.user_id THEN TRUE
+                   ELSE FALSE
+               END AS "is_creator!"
+        FROM participants p
+        JOIN rooms r ON p.room_id = r.id
+        WHERE p.id = $1 AND p.room_id = $2
+        "#,
+        participant_id,
+        room_id
+    )
+            .fetch_one(&self)
+            .await?;
+
+        Ok(is_creator)
+    }
+
+
 
 }
