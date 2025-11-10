@@ -1,18 +1,6 @@
 use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
-#[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
-pub enum Teams{
-    MumbaiIndians,
-    ChennaiSuperKings,
-    SunRisersHyderabad,
-    PunjabKings,
-    RajastanRoyals,
-    RoyalChallengersBanglore,
-    KolkataKnightRiders,
-    DelhiCapitals,
-    LucknowSuperGaints,
-    GujaratTitans
-}
+
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
 pub struct AuctionRoom {
     pub current_bid: Option<Bid>,

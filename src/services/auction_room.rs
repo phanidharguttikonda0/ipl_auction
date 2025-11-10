@@ -211,6 +211,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
         conn.set::<_,_,()>(&room_id, res).await?;
         tracing::info!("we are going to broadcast the message to the room participant") ;
         broadcast_handler(message,room_id.clone(), &mut app_state ).await ;
+
+        // -------------------- over here we need to add the player to the sold player list with room-id and player-id
+
         // we are going to get the next player and broadcasting the next player
         let next_player = player_id + 1 ;
         let players: RedisResult<Vec<Player>> = conn.get("players").await;

@@ -1,11 +1,13 @@
 use std::sync::{Arc};
 use tokio::sync::RwLock;
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 use dotenv::dotenv;
 use tokio::task;
 use crate::auction::ws_handler;
 use crate::models::app_state::AppState;
+use crate::routes::players_routes::players_routes;
+use crate::routes::rooms_routes::rooms_routes;
 use crate::services::auction::DatabaseAccess;
 use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
@@ -13,6 +15,9 @@ use crate::services::other::load_players_to_redis;
 mod models;
 mod auction;
 mod services;
+mod routes;
+mod controllers;
+mod middlewares;
 
 #[tokio::main]
 async fn main() {
@@ -48,5 +53,8 @@ async fn routes() -> Router {
     load_players_to_redis(&state.database_connection).await ;
     Router::new().route("/", get(|| async { "Hello, World!" }))
         .route("/ws/{room_id}/{participant_id}", get(ws_handler)) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
+        .nest("/rooms", rooms_routes())
+        .nest("/players", players_routes())
+        .route("/continue-with-google", post(controllers::authentication::authentication_handler))
         .with_state(state)
 }
