@@ -2,6 +2,7 @@ use std::sync::{Arc};
 use tokio::sync::RwLock;
 use axum::Router;
 use axum::routing::get;
+use dotenv::dotenv;
 use tokio::task;
 use crate::auction::ws_handler;
 use crate::models::app_state::AppState;
@@ -16,7 +17,7 @@ mod services;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-
+    dotenv().ok();
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
     tracing::info!("Starting server on port {}", port);
     tracing::info!("creating TCP listener") ;

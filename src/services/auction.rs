@@ -2,7 +2,7 @@ use sqlx::{query_scalar, Pool, Postgres, Row};
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 use crate::models::app_state::Player;
-
+use dotenv::dotenv;
 #[derive(Debug, Clone)]
 pub struct DatabaseAccess {
     pub connection: Pool<Postgres>
@@ -10,7 +10,14 @@ pub struct DatabaseAccess {
 
 impl DatabaseAccess {
     pub async fn new() -> Self {
-        let postgress_url = std::env::var("POSTGRESS_URL").unwrap();
+        let postgress_url = std::env::var("DATABASE_URL");
+        let postgress_url =  match postgress_url {
+           Ok(url) => url,
+            Err(err) => {
+                tracing::error!("error occured while getting the database url {}", err) ;
+                panic!("error occured while getting the database url {}", err) ;
+            }
+        } ;
         let max_connections = std::env::var("MAX_CONNECTIONS").unwrap().parse::<u32>().unwrap();
         let pool = PgPoolOptions::new().max_connections(max_connections).connect(&postgress_url).await.unwrap() ;
         Self {
