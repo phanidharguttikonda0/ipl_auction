@@ -21,7 +21,7 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
     tracing::info!("Starting server on port {}", port);
     tracing::info!("creating TCP listener") ;
-    let tcp_listener = tokio::net::TcpListener::bind(format!("[::]:{}", port)).await.unwrap();
+    let tcp_listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
     let app = routes().await;
     axum::serve(tcp_listener, app).await.unwrap();
 
@@ -46,7 +46,7 @@ async fn routes() -> Router {
 
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
-    Router::new()
+    Router::new().route("/", get(|| async { "Hello, World!" }))
         .route("/ws/{room_id}/{participant_id}", get(ws_handler)) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
         .with_state(state)
 }
