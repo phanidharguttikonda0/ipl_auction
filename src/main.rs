@@ -21,7 +21,7 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
     tracing::info!("Starting server on port {}", port);
     tracing::info!("creating TCP listener") ;
-    let tcp_listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
+    let tcp_listener = tokio::net::TcpListener::bind(format!("[::]:{}", port)).await.unwrap();
     let app = routes().await;
     axum::serve(tcp_listener, app).await.unwrap();
 
