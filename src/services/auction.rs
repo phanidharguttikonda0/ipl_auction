@@ -83,7 +83,7 @@ impl DatabaseAccess {
     }
 
     pub async fn create_room(&self, user_id: i32) -> Result<String, sqlx::Error> {
-        let room = sqlx::query("insert into rooms (creator_id) values ($1) returning id)")
+        let room = sqlx::query("insert into rooms (creator_id) values ($1) returning id")
             .bind(user_id)
             .fetch_one(&self.connection).await ;
 
