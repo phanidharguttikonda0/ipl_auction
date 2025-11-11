@@ -169,7 +169,7 @@ impl DatabaseAccess {
     }
 
     pub async fn add_participant(&self, user_id: i32, room_id: String, team_name: String) -> Result<i32, sqlx::Error> {
-        let participant = sqlx::query("insert into participant  (user_id, room_id, team_selected) values ($1,$2,$3) returning id)")
+        let participant = sqlx::query("insert into participant  (user_id, room_id, team_selected) values ($1,$2,$3) returning id")
             .bind(user_id)
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .bind(&team_name)
