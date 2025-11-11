@@ -48,21 +48,21 @@ pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extensi
     */
 
     // get remaining teams only if the status was in not_started and also he was not a participant that he already joined
-    match app_state.database_connection.get_room_status(room_id.clone()).await {
-        Ok(status) => {
-            if status == "not_started" {
-
-            }
-         },
-        Err(err) => {
-            tracing::error!("error occurred while getting room status");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "message": "Internal Server Error" })),
-            ) // we need to check whether the room-id doesn't exists is that throwing the error or anything else
-        }
-    }
-
+    // match app_state.database_connection.get_room_status(room_id.clone()).await {
+    //     Ok(status) => {
+    //         if status == "not_started" {
+    // 
+    //         }
+    //      },
+    //     Err(err) => {
+    //         tracing::error!("error occurred while getting room status");
+    //         (
+    //             StatusCode::INTERNAL_SERVER_ERROR,
+    //             Json(json!({ "message": "Internal Server Error" })),
+    //         ) // we need to check whether the room-id doesn't exists is that throwing the error or anything else
+    //     }
+    // }
+    Json(Err("Not implemented".to_string()))
 }
 
 pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((room_id, team_name)) : Path<(String, String)>) -> Json<Result<ParticipantsWithTeam, String>> {
