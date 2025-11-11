@@ -82,10 +82,9 @@ impl DatabaseAccess {
         Ok(row.try_get::<bool, _>("is_creator")?)
     }
 
-    pub async fn create_room(&self, user_id: i32, team_name: String) -> Result<String, sqlx::Error> {
-        let room = sqlx::query("insert into rooms (creator_id, team_name) values ($1, $2) returning id)")
+    pub async fn create_room(&self, user_id: i32) -> Result<String, sqlx::Error> {
+        let room = sqlx::query("insert into rooms (creator_id) values ($1) returning id)")
             .bind(user_id)
-            .bind(&team_name)
             .fetch_one(&self.connection).await ;
 
         match room {
