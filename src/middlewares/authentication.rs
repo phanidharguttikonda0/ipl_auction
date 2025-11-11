@@ -13,17 +13,17 @@ pub async fn auth_check(mut req: Request, next: Next) -> Response {
     let Some(header_value) = req.headers().get("Authorization") else {
         return unauthorized("Authorization header is missing");
     };
-
+    tracing::info!("Authorization header is {}", header_value);
     // Convert to str
     let Ok(header_str) = header_value.to_str() else {
         return unauthorized("Failed to convert Authorization header to str");
     };
-
+    
     // Expect "Bearer <token>"
     let Some(token) = header_str.strip_prefix("Bearer ") else {
         return unauthorized("Only Bearer token is supported");
     };
-
+    tracing::info!("Token is {}", token);
     // Decode and verify JWT
     let secret_key = std::env::var("JWT_SECRET").unwrap();
     let key = DecodingKey::from_secret(secret_key.as_ref());
