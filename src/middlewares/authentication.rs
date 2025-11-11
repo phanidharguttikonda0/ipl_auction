@@ -13,12 +13,12 @@ pub async fn auth_check(mut req: Request, next: Next) -> Response {
     let Some(header_value) = req.headers().get("Authorization") else {
         return unauthorized("Authorization header is missing");
     };
-    tracing::info!("Authorization header is {}", header_value);
+    
     // Convert to str
     let Ok(header_str) = header_value.to_str() else {
         return unauthorized("Failed to convert Authorization header to str");
     };
-    
+    tracing::info!("Authorization header is {}", header_str);
     // Expect "Bearer <token>"
     let Some(token) = header_str.strip_prefix("Bearer ") else {
         return unauthorized("Only Bearer token is supported");
