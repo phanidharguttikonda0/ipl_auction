@@ -19,3 +19,5 @@ tokio-stream = "0.1.17"
 uuid = { version = "1.18.1", features = ["v4"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "postgres", "uuid", "chrono","runtime-tokio-native-tls"] }
 futures-util = "0.3.31"
+json-web-token = "0.2.0"
+chrono = "0.4.42"

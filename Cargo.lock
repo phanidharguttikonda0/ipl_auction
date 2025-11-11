@@ -94,6 +94,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "b64-url"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a42256b0f4b8bb05b42a019d3dd120ed8e637ce3513d27e6d77d6e45a1bcc6c"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,7 +179,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "145052bdd345b87320e369255277e3fb5152762ad123a901ef5c262dd38fe8d2"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -967,8 +978,10 @@ name = "ipl_auction"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
  "dotenv",
  "futures-util",
+ "json-web-token",
  "jsonwebtoken",
  "redis",
  "redis-derive",
@@ -996,6 +1009,22 @@ checksum = "b011eec8cc36da2aab2d5cff675ec18454fad408585853910a202391cf9f8e65"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "json-web-token"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc412b5f250c5da1e1e731a3b985f3970dee687e9f3b065da90ce320ec3baa45"
+dependencies = [
+ "b64-url",
+ "bytes",
+ "digest",
+ "hmac",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
