@@ -6,7 +6,8 @@ use axum::response::IntoResponse;
 use serde_json::json;
 use crate::models::app_state::AppState;
 use crate::models::authentication_models::Claims;
-use crate::models::room_models::{Participant, ParticipantsWithTeam, Teams};
+use crate::models::room_models::{Participant, ParticipantsWithTeam};
+use crate::models::player_models::Teams;
 
 pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(team_name) : Path<String>) -> impl IntoResponse  {
     /*
@@ -14,7 +15,13 @@ pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user)
         create a websocket connection with the server, and the server will send all the details to the room if any
         new team has joined everything.
     */
-
+    let team_name_check = Teams::check_team(&team_name);
+    if !team_name_check {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "message": "Invalid Team Name" })),
+        ) ;
+    }
     // first creating a room
     match app_state.database_connection.create_room(user.user_id).await {
         Ok(room_id) => {
@@ -65,10 +72,17 @@ pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extensi
     (StatusCode::OK, Json(json!({ "message": "Not Implemented" })))
 }
 
-pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((room_id, team_name)) : Path<(String, String)>) -> Json<Result<ParticipantsWithTeam, String>> {
+pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((room_id, team_name)) : Path<(String, String)>) -> impl IntoResponse {
     /*
         it will add the participant to the room and then returns the participant_id, and then front-end will create a websocket
         connection with the server, and the server will send all the details to the room if any new team has joined everything.
     */
-    Json(Err("Not implemented".to_string()))
+    let team_name_check = Teams::check_team(&team_name);
+    if !team_name_check {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "message": "Invalid Team Name" })),
+        ) ;
+    }
+    (StatusCode::OK, Json(json!({ "message": "Not Implemented" })))
 }

@@ -17,22 +17,23 @@ pub enum Teams{
 } // after getting the team name, we are going to check whether the team name in the same valid format or not
 
 impl Teams {
-    pub fn check_team(team: String) -> Teams {
-        match team.as_str() { 
-            "Mumbai Indians" => Teams::MumbaiIndians,
-            "Chennai Super Kings" => Teams::ChennaiSuperKings,
-            "Sun Risers Hyderabad" => Teams::SunRisersHyderabad,
-            "Punjab Kings" => Teams::PunjabKings,
-            "Rajasthan Royals" => Teams::RajasthanRoyals,
-            "Royal Challengers Bangalore" => Teams::RoyalChallengersBangalore,
-            "Kolkata Knight Riders" => Teams::KolkataKnightRiders,
-            "Delhi Capitals" => Teams::DelhiCapitals,
-            "Lucknow Super Gaints" => Teams::LucknowSuperGaints,
-            "Gujarat Titans" => Teams::GujaratTitans,
-            _ => Teams::Unknown,
-        }
-    } // if the team name was not in this format, we are going to return the team name was incorrect
+    pub fn check_team(team: &str) -> bool {
+        matches!(
+            team,
+            "Mumbai Indians"
+                | "Chennai Super Kings"
+                | "Sun Risers Hyderabad"
+                | "Punjab Kings"
+                | "Rajasthan Royals"
+                | "Royal Challengers Bangalore"
+                | "Kolkata Knight Riders"
+                | "Delhi Capitals"
+                | "Lucknow Super Gaints"
+                | "Gujarat Titans"
+        )
+    }
 }
+
 
 pub enum RoomStatus {
     NotStarted,
