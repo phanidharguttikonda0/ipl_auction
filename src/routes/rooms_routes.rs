@@ -10,5 +10,6 @@ pub fn rooms_routes() -> Router<Arc<AppState>> {
         .route("/create-room/{team_name}", get(create_room)) // from the authorization header we can get user-id
         .route("/join-room-get-teams/{room-id}", get(get_remaining_teams))// it returns the remaining teams
         .route("/join-room/{room-id}/{team_name}", get(join_room)) // it returns the participant_id
-        .route_layer(middleware::from_fn(crate::middlewares::authentication::auth_check))
+        .layer(middleware::from_fn(crate::middlewares::authentication::auth_check))
+
 }

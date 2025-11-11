@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use axum::Extension;
 use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::extract::ws::{WebSocket, Message};
 use axum::response::IntoResponse;
@@ -9,7 +10,9 @@ use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOut
 use crate::services::auction_room::RedisConnection;
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
-pub async fn ws_handler(ws: WebSocketUpgrade, Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
+use crate::models::authentication_models::Claims;
+
+pub async fn ws_handler(ws: WebSocketUpgrade,Extension(user): Extension<Claims> ,Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| socket_handler(socket, room_id, participant_id, app_state))
 }
 
@@ -65,7 +68,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         }
     };
 
-
+    // after joining we need to send that this particular participant with this team has joined the room , to all the
+    // participants in the room
 
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
