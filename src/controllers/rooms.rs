@@ -16,7 +16,7 @@ pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user)
     */
 
     // first creating a room
-    match app_state.database_connection.create_room(user.user_id, team_name.clone()).await {
+    match app_state.database_connection.create_room(user.user_id).await {
         Ok(room_id) => {
             let participant_id = app_state.database_connection.add_participant(user.user_id, room_id.clone(), team_name.clone()).await.expect("Unable to add participant to the room");
             tracing::info!("created participant_id {} for the room_id {} and team_name {} ", participant_id, room_id, team_name);
@@ -40,7 +40,7 @@ pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user)
     }
 }
 
-pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(team_name) : Path<String>) -> Json<Result<Teams, String>> {
+pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(room_id) : Path<String>) -> impl IntoResponse {
     /*
         once user entered the room-id or he clicks the link , then this api call will executed and if the participant was already
         exists in the room, then it will return the participant_id directly,else returns the list of teams, based on this
@@ -48,7 +48,21 @@ pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extensi
     */
 
     // get remaining teams only if the status was in not_started and also he was not a participant that he already joined
-    Json(Err("Not implemented".to_string()))
+    match app_state.database_connection.get_room_status(room_id.clone()).await {
+        Ok(status) => {
+            if status == "not_started" {
+
+            }
+         },
+        Err(err) => {
+            tracing::error!("error occurred while getting room status");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "message": "Internal Server Error" })),
+            ) // we need to check whether the room-id doesn't exists is that throwing the error or anything else
+        }
+    }
+
 }
 
 pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((room_id, team_name)) : Path<(String, String)>) -> Json<Result<ParticipantsWithTeam, String>> {
