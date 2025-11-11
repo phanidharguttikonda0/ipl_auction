@@ -7,7 +7,7 @@ pub struct AuthenticationModel {
     pub google_sid: String,
     pub favorite_team: Option<String>
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub user_id: i32,     // user id or mail
     pub username: String,

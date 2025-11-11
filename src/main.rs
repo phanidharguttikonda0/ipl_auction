@@ -1,10 +1,11 @@
 use std::sync::{Arc};
 use tokio::sync::RwLock;
-use axum::Router;
+use axum::{middleware, Router};
 use axum::routing::{get, post};
 use dotenv::dotenv;
 use tokio::task;
 use crate::auction::ws_handler;
+use crate::middlewares::authentication::auth_check;
 use crate::models::app_state::AppState;
 use crate::routes::players_routes::players_routes;
 use crate::routes::rooms_routes::rooms_routes;
@@ -52,7 +53,7 @@ async fn routes() -> Router {
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     Router::new().route("/", get(|| async { "Hello, World!" }))
-        .route("/ws/{room_id}/{participant_id}", get(ws_handler)) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
+        .route("/ws/{room_id}/{participant_id}", get(ws_handler).route_layer(middleware::from_fn(auth_check))) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
