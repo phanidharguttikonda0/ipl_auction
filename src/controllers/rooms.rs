@@ -54,22 +54,83 @@ pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extensi
         the front-end will render and route accordingly.
     */
 
-    // get remaining teams only if the status was in not_started and also he was not a participant that he already joined
-    // match app_state.database_connection.get_room_status(room_id.clone()).await {
-    //     Ok(status) => {
-    //         if status == "not_started" {
-    //
-    //         }
-    //      },
-    //     Err(err) => {
-    //         tracing::error!("error occurred while getting room status");
-    //         (
-    //             StatusCode::INTERNAL_SERVER_ERROR,
-    //             Json(json!({ "message": "Internal Server Error" })),
-    //         ) // we need to check whether the room-id doesn't exists is that throwing the error or anything else
-    //     }
-    // }
-    (StatusCode::OK, Json(json!({ "message": "Not Implemented" })))
+    // before returning remaining teams, let's first check whether the user already in the room or not
+    let is_already_participant = app_state.database_connection.is_already_participant(user.user_id, room_id.clone()).await;
+    let room_status = app_state.database_connection.get_room_status(room_id.clone()).await.expect("Invalid room_id");
+    match is_already_participant {
+        Ok((participant_id, team_name)) => {
+            tracing::info!("participant_id {} is already in the room_id {} and team_name {} ", participant_id, room_id, team_name);
+
+            if room_status == "completed" {
+                return (
+                    StatusCode::OK,
+                    Json(json!({
+                        "message": "Room Closed"
+                    })),
+                ) ;
+            }
+
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "room_id": room_id,
+                    "team_name": team_name,
+                    "participant_id": participant_id,
+                    "message": "Already a participant"
+                })),
+            )
+        },
+        Err(err) => {
+            tracing::info!("a new participant") ;
+            let remaining_teams = app_state.database_connection.get_remaining_teams(room_id.clone()).await.expect("Unable to get remaining teams");
+            if room_status == "completed" {
+                return (
+                    StatusCode::OK,
+                    Json(json!({
+                        "message": "Room Closed"
+                    })),
+                ) ;
+            }else if room_status == "in_progress" {
+                return (
+                    StatusCode::OK,
+                    Json(json!({
+                        "message": "Room Closed, Auction Started"
+                    })),
+                ) ;
+            }
+
+            let teams = vec![
+                "Mumbai Indians",
+                "Chennai Super Kings",
+                "Sun Risers Hyderabad",
+                "Punjab Kings",
+                "Rajasthan Royals",
+                "Royal Challengers Bangalore",
+                "Kolkata Knight Riders",
+                "Delhi Capitals",
+                "Lucknow Super Gaints",
+                "Gujarat Titans",
+            ];
+
+            // let's get remaining teams
+            let mut real_remaining_teams = vec![] ;
+            for team in teams {
+                for existed_team in remaining_teams.iter() {
+                    if team != existed_team {
+                        real_remaining_teams.push(team) ;
+                    }
+                }
+            }
+            tracing::info!("remaining teams are {:?}", real_remaining_teams);
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "remaining_teams": remaining_teams,
+                    "message": "Join with the remaining teams"
+                })),
+            ) // these are used teams, so we need to make sure return the teams that are not there
+        }
+    }
 }
 
 pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((room_id, team_name)) : Path<(String, String)>) -> impl IntoResponse {
@@ -84,7 +145,7 @@ pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): 
             Json(json!({ "message": "Invalid Team Name" })),
         ) ;
     }
-
+    // need to add a db check such that no 2 teams will have the same name and also make sure doesn't exceed more than 10 teams
     match app_state.database_connection.add_participant(user.user_id, room_id.clone(), team_name.clone()).await {
         Ok(participant_id) => {
             tracing::info!("created participant_id {} for the room_id {} and team_name {} ", participant_id, room_id, team_name);
@@ -98,6 +159,12 @@ pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): 
                 })),
             )
         },
+        /*
+            Error Logic need to be clear, where if the same user tries to join we need to say, that you're already
+            a participant so we should not insert we need to return the participant_id , so we need to make sure
+            this gonna work. where we need to do a change in the db call such that if user already a participant,
+            we need to return the participant_id.
+        */
         Err(err) => {
             tracing::error!("error occurred while creating room");
             (
