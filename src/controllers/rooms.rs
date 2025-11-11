@@ -84,5 +84,26 @@ pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): 
             Json(json!({ "message": "Invalid Team Name" })),
         ) ;
     }
-    (StatusCode::OK, Json(json!({ "message": "Not Implemented" })))
+
+    match app_state.database_connection.add_participant(user.user_id, room_id.clone(), team_name.clone()).await {
+        Ok(participant_id) => {
+            tracing::info!("created participant_id {} for the room_id {} and team_name {} ", participant_id, room_id, team_name);
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "room_id": room_id,
+                    "team_name": team_name,
+                    "participant_id": participant_id,
+                    "message": "Room Created Successfully"
+                })),
+            )
+        },
+        Err(err) => {
+            tracing::error!("error occurred while creating room");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "message": "Internal Server Error" })),
+            )
+        }
+    }
 }
