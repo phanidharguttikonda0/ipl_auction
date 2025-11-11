@@ -25,7 +25,7 @@ pub async fn auth_check(mut req: Request, next: Next) -> Response {
     };
 
     // Decode and verify JWT
-    let secret_key = std::env::var("SECRET_KEY").unwrap();
+    let secret_key = std::env::var("JWT_SECRET").unwrap();
     let key = DecodingKey::from_secret(secret_key.as_ref());
     let validation = Validation::new(Algorithm::HS256);
 
