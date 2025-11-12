@@ -48,6 +48,23 @@ impl RedisConnection {
             }
         }
     }
+    
+    pub async fn get_participant(&mut self, room_id: String, participant_id: i32) -> Result<Option<AuctionParticipant>, redis::RedisError> {
+        let value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
+        match value { 
+            Ok(value) => {
+                for participant in value.participants.iter() {
+                    if participant.id == participant_id {
+                        return Ok(Some(participant.clone()));
+                    }
+                }
+                Ok(None)
+            },
+            Err(err) => {
+                return Err(err);
+            }
+        }
+    }
 
     pub async fn check_participant(&mut self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
         let value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;

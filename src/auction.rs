@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use redis::aio::AsyncPushSender;
 use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
-use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOutput};
+use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOutput, NewJoiner};
 use crate::services::auction_room::RedisConnection;
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
@@ -29,47 +29,111 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     // here we are going to set the redis room, if room doesn't exist we are going to create and add participant,
     // else we are going to add the participant to the room that is existing, and also checks whether the participant
     // is already exists or not
+
+    /*
+        over here we are going get the room_status, then if room_status was not started then we are going to check,
+        whether the participant is already in redis , if exists we are going to return those details , else if the room
+        status was in_progress then we are going to check, if the participant was exists in redis , if not we are going
+        to return by sending the message room is closed and auction started, then if room_status was completed then we
+        are going to return, that auction was completed room is close.
+
+    */
     let mut redis_connection = RedisConnection::new().await;
+    let room_status = app_state.database_connection.get_room_status(room_id.clone()).await ;
+    let room_status = match room_status {
+        Ok(room_status) => room_status,
+        Err(err) => {
+            tracing::error!("error in getting room_status in ws") ;
+            sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
+            return;
+        }
+    } ;
     let result = app_state.database_connection.get_team_name(participant_id).await;  // getting team name from the participant
     let team_name = match result {
         Ok(result) => {
             result
         },Err(err ) => {
             tracing::warn!("unable to get team_selected by a participant") ;
+            sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
             drop(rooms) ;
             return;
         }
     } ;
-    // over here we are going to check room-status if room-status was not-started or pending, if it is finished, then return
+
+    let room_exists ;
+
     if let Some(vec) = rooms.get_mut(&room_id) {
         vec.push((participant_id, tx)) ;
         tracing::info!("Room exists, adding participant {}", participant_id);
-
+        room_exists = true ;
     }else{
         tracing::info!("Room doesn't exist, creating a new room {}", room_id);
         rooms.insert(room_id.clone(), vec![(participant_id, tx)]);
         tracing::info!("Creating room in redis") ;
-        redis_connection.set_room(room_id.clone(), AuctionRoom::new()).await.expect("Room unable to Create");
-    } // we stored the tx, which is used to send the data to the receiver channel
+        room_exists = false;
+    }
     drop(rooms); // release lock early
-
-    let result = redis_connection.add_participant(room_id.clone(), AuctionParticipant::new(
-        participant_id,
-        team_name.clone()
-    )).await ;
-
-    match result {
-        Ok(val) => {
-            tracing::info!("participant added to the redis {}", val) ;
-        }  ,
+    let participant_exists = redis_connection.check_participant(participant_id, room_id.clone()).await ;
+    let participant_exists = match participant_exists {
+        Ok(participant_exists) => participant_exists,
         Err(err) => {
-            tracing::warn!("error in the adding participant to the redis was {}", err) ;
+            tracing::error!("unable to get the check participant in redis") ;
+            sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
             return;
         }
-    };
+    } ;
+    if room_status == "not_started" {
+        // over here we are going to check room-status if room-status was not-started or pending, if it is finished, then return
+         // we stored the tx, which is used to send the data to the receiver channel
 
-    // after joining we need to send that this particular participant with this team has joined the room , to all the
-    // participants in the room
+        if  !room_exists {
+            redis_connection.set_room(room_id.clone(), AuctionRoom::new()).await.expect("Room unable to Create");
+        }
+
+        // over here we are going to add participant to the redis
+        if !participant_exists {
+            let result = redis_connection.add_participant(room_id.clone(), AuctionParticipant::new(
+                participant_id,
+                team_name.clone()
+            )).await ;
+
+            match result {
+                Ok(val) => {
+                    tracing::info!("participant added to the redis {}", val) ;
+                }  ,
+                Err(err) => {
+                    tracing::warn!("error in the adding participant to the redis was {}", err) ;
+                    sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
+                    return;
+                }
+            };
+
+            // after joining we need to send that this particular participant with this team has joined the room , to all the
+            // participants in the room
+            broadcast_handler(Message::from(NewJoiner {
+                participant_id,
+                team_name: team_name.clone(),
+                balance: 100.00
+            }), room_id.clone(), &app_state).await;
+            tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
+        }else{
+            let Some(participant) = redis_connection.get_participant(room_id.clone(),participant_id).await ;
+            // here we are going to get the details of the old participant, and sending the old participant details
+            broadcast_handler(Message::from(NewJoiner {
+                participant_id,
+                team_name: team_name.clone(),
+                balance: 100.00
+            }), room_id.clone(), &app_state).await;
+            tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
+
+        }
+
+    }else if room_status == "in_progress" && !participant_exists || room_status == "completed"{
+        // now we are going to check whether the participant exists, if not exists we are going to add him
+        // because any way he was in the room , but somehow he was not able to create the ws connection and get into the room
+        sender.send(Message::text("room is closed, Auction going on")).await.expect("unable to send message");
+        return;
+    }
 
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {

@@ -68,3 +68,10 @@ pub struct SoldPlayer {
     pub team_name: String,
     pub sold_price: f32,
 }
+
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct NewJoiner {
+    pub participant_id: i32,
+    pub team_name: String,
+    pub balance: f32,
+}

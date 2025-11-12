@@ -49,7 +49,7 @@ pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user)
 
 pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(room_id) : Path<String>) -> impl IntoResponse {
     /*
-        once user entered the room-id or he clicks the link , then this api call will executed and if the participant was already
+        once user entered the room-id or he clicks the link, then this api call will executed and if the participant was already
         exists in the room, then it will return the participant_id directly,else returns the list of teams, based on this
         the front-end will render and route accordingly.
     */
