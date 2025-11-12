@@ -11,7 +11,7 @@ pub async fn load_players_to_redis(conn: &DatabaseAccess) {
     let players = conn.get_players().await.unwrap();
     tracing::info!("first player {:?}", players[0]) ;
     tracing::info!("loading players to redis started") ;
-    redis_connection.await.load_players_to_redis(players).await.unwrap();
+    let val = redis_connection.await.load_players_to_redis(players).await;
     tracing::info!("loading players to redis successful") ;
 }
 
