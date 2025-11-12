@@ -256,6 +256,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
         let details = get_participant_details(participant_id, &res.participants).unwrap() ;
         res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
         // need to update that particular participant purse or balance before storing the updated value in redis
+        let current_bid = res.current_bid.clone().unwrap() ;
         res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
         let res = serde_json::to_string(&res).unwrap();
         conn.set::<_,_,()>(&room_id, res).await?;
@@ -263,7 +264,13 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
         broadcast_handler(message,room_id.clone(), &mut app_state ).await ;
 
         // -------------------- over here we need to add the player to the sold player list with room-id and player-id
-
+        if current_bid.bid_amount != 0.0 {
+            tracing::info!("player was a sold player") ;
+            app_state.database_connection.add_sold_player(room_id.clone(), current_bid.player_id, current_bid.participant_id, current_bid.bid_amount).await.unwrap();
+        }else { 
+            tracing::info!("player was an unsold player") ;
+            app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
+        }
         // we are going to get the next player and broadcasting the next player
         let next_player = player_id + 1 ;
         let players: RedisResult<String> = conn.get("players").await;

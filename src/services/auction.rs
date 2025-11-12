@@ -188,4 +188,42 @@ impl DatabaseAccess {
             }
         }
     }
+
+
+    pub async fn add_sold_player(&mut self, room_id: String, player_id: i32, participant_id: i32, amount: f32) -> Result<(), sqlx::Error> {
+        let result = sqlx::query("insert into sold_players (room_id, player_id, participant_id, amount) values ($1,$2,$3,$4)")
+            .bind(&room_id)
+            .bind(player_id)
+            .bind(participant_id)
+            .bind(amount).execute(&self.connection).await ;
+
+        match result {
+            Ok(_) => {
+                tracing::info!("added sold player successfully") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("got an error while adding a sold player") ;
+                tracing::error!("error {}", err) ;
+                Err(err)
+            }
+        }
+    }
+    pub async fn add_unsold_player(&mut self, room_id: String, player_id: i32) -> Result<(), sqlx::Error> {
+        let result = sqlx::query("insert into unsold_players (room_id, player_id) values ($1,$2)")
+            .bind(&room_id)
+            .bind(player_id)
+            .execute(&self.connection).await ;
+        match result {
+            Ok(_) => {
+                tracing::info!("added unsold player successfully") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("got an error while adding a unsold player") ;
+                tracing::error!("error {}", err) ;
+                Err(err)
+            }
+        }
+    }
 }
