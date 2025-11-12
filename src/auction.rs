@@ -110,20 +110,20 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
             // after joining we need to send that this particular participant with this team has joined the room , to all the
             // participants in the room
-            broadcast_handler(Message::from(NewJoiner {
+            broadcast_handler(Message::from(serde_json::to_string(&NewJoiner {
                 participant_id,
                 team_name: team_name.clone(),
                 balance: 100.00
-            }), room_id.clone(), &app_state).await;
+            }).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
         }else{
-            let Some(participant) = redis_connection.get_participant(room_id.clone(),participant_id).await ;
+            let Some(participant) = redis_connection.get_participant(room_id.clone(),participant_id).await.unwrap() else {
+                tracing::error!("The participant was in the redis room but we are not getting the participant from the get_participant") ;
+                sender.send(Message::text("Your not in the room")).await.expect("unable to send message");
+                return;
+            } ;
             // here we are going to get the details of the old participant, and sending the old participant details
-            broadcast_handler(Message::from(NewJoiner {
-                participant_id,
-                team_name: team_name.clone(),
-                balance: 100.00
-            }), room_id.clone(), &app_state).await;
+            broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
 
         }
