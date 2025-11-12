@@ -190,7 +190,7 @@ impl DatabaseAccess {
     }
 
 
-    pub async fn add_sold_player(&mut self, room_id: String, player_id: i32, participant_id: i32, amount: f32) -> Result<(), sqlx::Error> {
+    pub async fn add_sold_player(&self, room_id: String, player_id: i32, participant_id: i32, amount: f32) -> Result<(), sqlx::Error> {
         let result = sqlx::query("insert into sold_players (room_id, player_id, participant_id, amount) values ($1,$2,$3,$4)")
             .bind(&room_id)
             .bind(player_id)
@@ -209,7 +209,7 @@ impl DatabaseAccess {
             }
         }
     }
-    pub async fn add_unsold_player(&mut self, room_id: String, player_id: i32) -> Result<(), sqlx::Error> {
+    pub async fn add_unsold_player(&self, room_id: String, player_id: i32) -> Result<(), sqlx::Error> {
         let result = sqlx::query("insert into unsold_players (room_id, player_id) values ($1,$2)")
             .bind(&room_id)
             .bind(player_id)

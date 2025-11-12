@@ -219,7 +219,7 @@ use tokio_stream::StreamExt;
 use redis::{Client, aio::PubSub};
 use axum::extract::ws::{Message};
 
-pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppState>) -> redis::RedisResult<()> {
+pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>) -> redis::RedisResult<()> {
     let client = Client::open(redis_url)?;
     let mut pubsub = client.get_async_pubsub().await?;
     let mut conn = client.get_multiplexed_async_connection().await?;
@@ -261,13 +261,13 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
         let res = serde_json::to_string(&res).unwrap();
         conn.set::<_,_,()>(&room_id, res).await?;
         tracing::info!("we are going to broadcast the message to the room participant") ;
-        broadcast_handler(message,room_id.clone(), &mut app_state ).await ;
+        broadcast_handler(message,room_id.clone(), &app_state ).await ;
 
         // -------------------- over here we need to add the player to the sold player list with room-id and player-id
         if current_bid.bid_amount != 0.0 {
             tracing::info!("player was a sold player") ;
             app_state.database_connection.add_sold_player(room_id.clone(), current_bid.player_id, current_bid.participant_id, current_bid.bid_amount).await.unwrap();
-        }else { 
+        }else {
             tracing::info!("player was an unsold player") ;
             app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
         }
@@ -283,7 +283,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
                 }else{
                     message = Message::text("Auction Completed")
                 }
-                broadcast_handler(message,room_id, &mut app_state ).await ;
+                broadcast_handler(message,room_id, &app_state ).await ;
             },
             Err(err) => {
                 tracing::warn!("error occurred while getting players") ;
