@@ -80,6 +80,7 @@ impl RedisConnection {
             Err(e) => {
 
                 tracing::warn!("room itself doesn't exists") ;
+                tracing::error!("error was {}", e) ;
                 Err(e)
             }
         }
