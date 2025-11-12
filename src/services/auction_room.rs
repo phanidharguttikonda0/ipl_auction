@@ -146,7 +146,7 @@ impl RedisConnection {
     pub async fn new_bid(&mut self, participant_id: i32, room_id: String, expiry_time: u8) -> Result<f32, String> {
        let mut room: RedisResult<String>= self.connection.get(room_id.clone()).await ;
         let timer_key = format!("auction:timer:{}", room_id);
-        tracing::info!("timer key was", timer_key) ;
+        tracing::info!("timer key was {}", timer_key) ;
         match room {
             Ok(mut room) => {
                 let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
