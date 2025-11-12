@@ -146,13 +146,17 @@ impl RedisConnection {
     pub async fn new_bid(&mut self, participant_id: i32, room_id: String, expiry_time: u8) -> Result<f32, String> {
        let mut room: RedisResult<String>= self.connection.get(room_id.clone()).await ;
         let timer_key = format!("auction:timer:{}", room_id);
-        match room { 
+        tracing::info!("timer key was", timer_key) ;
+        match room {
             Ok(mut room) => {
                 let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
                 let current_bid = room.current_bid.unwrap();
-                let previous_bid = current_bid.bid_amount ;
+                let mut previous_bid = current_bid.bid_amount ;
+
                 let next_bid_increment ;
-                if previous_bid < 1.0 {
+                if previous_bid == 0.0 {
+                    next_bid_increment = current_bid.base_price ;
+                } else if previous_bid < 1.0 {
                     // we are going to increment by 0.05
                     next_bid_increment = 0.05 ;
                 }else if previous_bid < 10.0 {
@@ -160,16 +164,18 @@ impl RedisConnection {
                 }else {
                     next_bid_increment = 0.25 ;
                 }
+                tracing::info!("next bid increment was {}", next_bid_increment) ;
                 let participant = get_participant_details(participant_id, &room.participants).unwrap().0;
                 let balance = participant.balance;
                 let players_brought = participant.total_players_brought;
                 // calculating bid allowance for the participant
                 let is_allowed = bid_allowance_handler(room_id.clone(),  previous_bid + next_bid_increment,
                 balance, players_brought).await;
-                
+                tracing::info!("is bid allowed {}", is_allowed) ;
                 if is_allowed {
                     room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, previous_bid + next_bid_increment, current_bid.base_price)) ;
                     let room = serde_json::to_string(&room).unwrap();
+                    tracing::info!("room was serialized ") ;
                     self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
                     // it gets restarted if any bid comes before 20 seconds
                     let res = self.connection.set_ex::<_,_, ()>(&timer_key, "active", expiry_time as u64).await;
