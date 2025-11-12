@@ -192,6 +192,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     // broadcasting
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
                 }else if text.to_string() == "bid" {
+                    /*
+                        If previously the same participant has send the bid, then that shouldn't be considered
+
+                    */
+
                     // the participant has bided
                    let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
                     match result {

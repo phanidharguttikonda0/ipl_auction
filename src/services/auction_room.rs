@@ -238,6 +238,7 @@ use axum::extract::ws::{Message};
 use serde_json::Error;
 
 pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>) -> redis::RedisResult<()> {
+    tracing::info!("🔔 Redis expiry listener started");
     let client = Client::open(redis_url)?;
     let mut pubsub = client.get_async_pubsub().await?;
     let mut conn = client.get_multiplexed_async_connection().await?;
