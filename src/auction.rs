@@ -164,6 +164,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 if text.to_string() == "start" {
 
                     // 3 people should exists in the room, inorder to start the auction
+                    // here we should get dynamically what's the player_id for the specific auction room
 
                     // we are going to return the first player from the auction
                     let player = redis_connection.get_player(1).await ;
@@ -172,7 +173,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                        Ok(player) => {
                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
                            // here we are going to add the player as Bid to the redis
-                           Bid::new(0, player.id, 0.0, player.base_price) ; // no one yet bidded
+                           let bid = Bid::new(0, player.id, 0.0, player.base_price) ; // no one yet bidded
+                           redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
                        } ,
                         Err(err) => {
                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
@@ -182,7 +184,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                     // changing room-status
 
-                    // broadcasting messages
+                    // broadcasting
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
                 }else if text.to_string() == "bid" {
                     // the participant has bided
