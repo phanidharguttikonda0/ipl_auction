@@ -17,15 +17,22 @@ impl RedisConnection {
     }
 
     pub async fn set_room(&mut self,room_id: String, room: AuctionRoom) -> Result<String, redis::RedisError> {
-        self.connection.set(room_id, room).await
+        let serialized_room = serde_json::to_string(&room).unwrap();
+        /*
+            as redis doesn't able to understand rust structs , even though the struct implements traits like
+            FromRedisArgs , ToRedisArgs , it cannot able to serialize or deserialize the values of vec or Options etc.
+        */
+        self.connection.set(room_id, serialized_room).await
     }
 
     pub async fn update_current_bid(&mut self, room_id: String, bid: Bid, expiry: u8) -> Result<String, redis::RedisError> {
-        let value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
+        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         let timer_key = format!("auction:timer:{}", room_id);
         match value {
             Ok(mut value) => {
+                let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
                 value.current_bid  = Some(bid) ;
+                let value = serde_json::to_string(&value).unwrap();
                 self.connection.set::<_, _, ()>(room_id.clone(), value).await.expect("unable to set the updated value in new_bid");
                  self.connection.set_ex::<_,_,()>(&timer_key, "active", expiry as u64).await.expect("unable to set the expiry");
                 Ok("Bid updated and TTL reset".to_string())
@@ -37,10 +44,12 @@ impl RedisConnection {
     }
 
     pub async fn add_participant(&mut self, room_id: String, participant: AuctionParticipant) -> Result<String, redis::RedisError> {
-        let mut value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
+        let mut value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         match value {
             Ok(mut value) => {
+                let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
                 value.add_participant(participant) ;
+                let value = serde_json::to_string(&value).unwrap();
                 self.connection.set(room_id, value).await
             },
             Err(e) => {
@@ -48,11 +57,12 @@ impl RedisConnection {
             }
         }
     }
-    
+
     pub async fn get_participant(&mut self, room_id: String, participant_id: i32) -> Result<Option<AuctionParticipant>, redis::RedisError> {
-        let value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
-        match value { 
+        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+        match value {
             Ok(value) => {
+                let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
                 for participant in value.participants.iter() {
                     if participant.id == participant_id {
                         return Ok(Some(participant.clone()));
@@ -67,9 +77,10 @@ impl RedisConnection {
     }
 
     pub async fn check_participant(&mut self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
-        let value: RedisResult<AuctionRoom> = self.connection.get(room_id.clone()).await ;
+        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         match value {
             Ok(value) => {
+                let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
                 for participant in value.participants {
                     if participant.id == participant_id {
                         return Ok(true) ;
@@ -92,7 +103,7 @@ impl RedisConnection {
     }
 
     pub async fn load_players_to_redis(&mut self, players: Vec<Player>) -> Result<(), redis::RedisError> {
-        let value: RedisResult<Vec<Player>> = self.connection.get("players").await ;
+        let value: RedisResult<String> = self.connection.get("players").await ;
         match value {
             Ok(value) => {
                 tracing::info!("players already exists in redis") ;
@@ -101,30 +112,43 @@ impl RedisConnection {
             Err(e) => {
                 tracing::info!("players doesn't exists in redis") ;
                 tracing::info!("adding players to redis") ;
-                self.connection.set("players", players).await
+                self.connection.set("players", serde_json::to_string(&players).unwrap()).await
             }
         }
     }
 
+
     pub async fn get_player(&mut self, player_id: i32) -> Result<Player, redis::RedisError> {
-        let value: RedisResult<Vec<Player>> = self.connection.get(player_id.clone()).await ;
-        match value {
-            Ok(value) => {
-                let player = value[player_id as usize].clone() ;
-                Ok(player)
-            },
+        // Get raw JSON string from Redis
+        let data: RedisResult<String> = self.connection.get("players").await;
+
+        match data {
+            Ok(json) => {
+                // Deserializing JSON → Vec<Player>
+                let players: Vec<Player> = serde_json::from_str(&json)
+                    .map_err(|_| redis::RedisError::from((redis::ErrorKind::TypeError, "Invalid JSON")))?;
+
+                // Find the player by ID
+                if let Some(player) = players.into_iter().find(|p| p.id == player_id) {
+                    Ok(player)
+                } else {
+                    Err(redis::RedisError::from((redis::ErrorKind::TypeError, "Player not found")))
+                }
+            }
             Err(e) => {
-                tracing::warn!("error occured while getting player") ;
+                tracing::warn!("Error while fetching players from Redis: {:?}", e);
                 Err(e)
             }
         }
     }
-    
+
+
     pub async fn new_bid(&mut self, participant_id: i32, room_id: String, expiry_time: u8) -> Result<f32, String> {
-       let mut room: RedisResult<AuctionRoom>= self.connection.get(room_id.clone()).await ;
+       let mut room: RedisResult<String>= self.connection.get(room_id.clone()).await ;
         let timer_key = format!("auction:timer:{}", room_id);
         match room { 
             Ok(mut room) => {
+                let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
                 let current_bid = room.current_bid.unwrap();
                 let previous_bid = current_bid.bid_amount ;
                 let next_bid_increment ;
@@ -145,7 +169,7 @@ impl RedisConnection {
                 
                 if is_allowed {
                     room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, previous_bid + next_bid_increment, current_bid.base_price)) ;
-
+                    let room = serde_json::to_string(&room).unwrap();
                     self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
                     // it gets restarted if any bid comes before 20 seconds
                     let res = self.connection.set_ex::<_,_, ()>(&timer_key, "active", expiry_time as u64).await;
@@ -163,10 +187,11 @@ impl RedisConnection {
     }
 
     pub async fn check_end_auction(&mut self, room_id: String) -> Result<bool, redis::RedisError> {
-        let room: RedisResult<AuctionRoom> = self.connection.get(&room_id).await ;
+        let room: RedisResult<String> = self.connection.get(&room_id).await ;
         match room {
             Ok(room) => {
                 tracing::info!("checking all the participants no of player brought") ;
+                let room: AuctionRoom = serde_json::from_str(&room).unwrap();
                 let mut fail = true ;
                 for participant in room.participants.iter() {
                     if participant.total_players_brought < 15 {
@@ -212,7 +237,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
             .to_string();
         tracing::info!("room_id from that expiry key was {}", room_id);
         tracing::info!("we are going to use the key to broadcast") ;
-        let mut res: AuctionRoom = conn.get(&room_id).await? ;
+        let mut res: String = conn.get(&room_id).await? ;
+        let mut res: AuctionRoom = serde_json::from_str(&res).unwrap();
         let message;
         let participant_id = res.current_bid.clone().unwrap().participant_id ;
         let player_id = res.current_bid.clone().unwrap().player_id ;
@@ -231,6 +257,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
         res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
         // need to update that particular participant purse or balance before storing the updated value in redis
         res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
+        let res = serde_json::to_string(&res).unwrap();
         conn.set::<_,_,()>(&room_id, res).await?;
         tracing::info!("we are going to broadcast the message to the room participant") ;
         broadcast_handler(message,room_id.clone(), &mut app_state ).await ;
@@ -239,10 +266,11 @@ pub async fn listen_for_expiry_events(redis_url: &str, mut app_state: Arc<AppSta
 
         // we are going to get the next player and broadcasting the next player
         let next_player = player_id + 1 ;
-        let players: RedisResult<Vec<Player>> = conn.get("players").await;
+        let players: RedisResult<String> = conn.get("players").await;
         let message;
         match players {
             Ok(players) => {
+                let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
                 if ((next_player) as usize ) < players.len(){
                     message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
                 }else{
