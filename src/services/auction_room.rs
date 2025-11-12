@@ -122,7 +122,7 @@ impl RedisConnection {
             Err(e) => {
                 tracing::info!("players doesn't exists in redis") ;
                 tracing::info!("adding players to redis") ;
-                self.connection.set("players", serde_json::to_string(&players).unwrap()).await.expect("unable to add players to redis");
+                let _:() = self.connection.set("players", serde_json::to_string(&players).unwrap()).await.expect("unable to add players to redis");
                 Err("getting error while getting players key from redis".to_string())
             }
         }
