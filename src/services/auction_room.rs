@@ -77,11 +77,16 @@ impl RedisConnection {
                 }
                 Ok(false)
             },
-            Err(e) => {
+            Err(err) => {
 
-                tracing::warn!("room itself doesn't exists") ;
-                tracing::error!("error was {}", e) ;
-                Err(e)
+                // Handling "key not found" or empty data gracefully
+                if err.kind() == redis::ErrorKind::TypeError || err.to_string().contains("Response was nil") {
+                    tracing::info!("Room '{}' does not exist in Redis yet", room_id);
+                    return Ok(false);
+                }
+
+                tracing::error!("Redis error in check_participant for room {}: {}", room_id, err);
+                Err(err)
             }
         }
     }
