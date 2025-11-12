@@ -9,6 +9,8 @@ pub async fn load_players_to_redis(conn: &DatabaseAccess) {
     let mut redis_connection = RedisConnection::new();
     // need to load players from the postgres database
     let players = conn.get_players().await.unwrap();
+    tracing::info!("first player {:?}", players[0]) ;
+    tracing::info!("loading players to redis started") ;
     redis_connection.await.load_players_to_redis(players).await.unwrap();
     tracing::info!("loading players to redis successful") ;
 }
