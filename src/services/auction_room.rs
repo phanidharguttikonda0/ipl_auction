@@ -102,17 +102,28 @@ impl RedisConnection {
         }
     }
 
-    pub async fn load_players_to_redis(&mut self, players: Vec<Player>) -> Result<(), redis::RedisError> {
+    pub async fn load_players_to_redis(&mut self, players: Vec<Player>) -> Result<(), String> {
         let value: RedisResult<String> = self.connection.get("players").await ;
         match value {
             Ok(value) => {
                 tracing::info!("players already exists in redis") ;
-                Ok(())
+                let players: Result<Vec<Player>, Error> = serde_json::from_str(&value) ;
+                match players {
+                    Ok(players) =>{
+                        tracing::info!("we players from redis , let's check first player {:?}", players[0]) ;
+                        Ok(())
+                    },
+                    Err(err) => {
+                        tracing::info!("no players found in redis") ;
+                        Err("players not exists in redis".to_string())
+                    }
+                }
             },
             Err(e) => {
                 tracing::info!("players doesn't exists in redis") ;
                 tracing::info!("adding players to redis") ;
-                self.connection.set("players", serde_json::to_string(&players).unwrap()).await
+                self.connection.set("players", serde_json::to_string(&players).unwrap()).await.expect("unable to add players to redis");
+                Err("getting error while getting players key from redis".to_string())
             }
         }
     }
@@ -224,6 +235,7 @@ impl RedisConnection {
 use tokio_stream::StreamExt;
 use redis::{Client, aio::PubSub};
 use axum::extract::ws::{Message};
+use serde_json::Error;
 
 pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>) -> redis::RedisResult<()> {
     let client = Client::open(redis_url)?;
