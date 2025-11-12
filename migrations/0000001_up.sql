@@ -42,7 +42,8 @@ CREATE TABLE participants (
                               purse_remaining NUMERIC(10,2) DEFAULT 100.00, -- in crores (₹)
                               FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                               FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
-                              UNIQUE (user_id, room_id)
+                              UNIQUE (user_id, room_id),
+                              UNIQUE (room_id, team_selected)
 );
 
 -- ==================================================

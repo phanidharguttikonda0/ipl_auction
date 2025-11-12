@@ -152,7 +152,7 @@ impl DatabaseAccess {
 
     }
     pub async fn get_room_status(&self, room_id: String) -> Result<String, sqlx::Error> {
-        let room_status = sqlx::query("select status from rooms where id = $1")
+        let room_status = sqlx::query("select status::TEXT from rooms where id = $1")
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .fetch_one(&self.connection).await ;
         match room_status {

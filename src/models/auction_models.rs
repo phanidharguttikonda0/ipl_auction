@@ -75,3 +75,4 @@ pub struct NewJoiner {
     pub team_name: String,
     pub balance: f32,
 }
+

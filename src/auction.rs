@@ -162,6 +162,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 // if a bid message was sent, then we are going to check for allowance
                 if text.to_string() == "start" {
+
+                    // 3 people should exists in the room, inorder to start the auction
+
                     // we are going to return the first player from the auction
                     let player = redis_connection.get_player(1).await ;
                     let message ;
@@ -176,6 +179,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             message = Message::text("Technical Glitch") ;
                         }
                     } ;
+
+                    // changing room-status
+
+                    // broadcasting messages
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
                 }else if text.to_string() == "bid" {
                     // the participant has bided
