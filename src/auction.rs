@@ -137,9 +137,14 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            sender.send(msg).await.unwrap(); // we are sending the message to the client
+            if let Err(err) = sender.send(msg).await {
+                tracing::warn!("WebSocket send failed: {}", err);
+                break; // stopping loop as a client disconnected
+            }
         }
-    }) ;
+        tracing::info!("Message forwarding task ended");
+    });
+
 
 
     // till now what happened was :
