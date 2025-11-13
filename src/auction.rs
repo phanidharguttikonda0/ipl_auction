@@ -87,7 +87,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
          // we stored the tx, which is used to send the data to the receiver channel
 
         if  !room_exists {
-            redis_connection.set_room(room_id.clone(), AuctionRoom::new()).await.expect("Room unable to Create");
+            redis_connection.set_room(room_id.clone(), AuctionRoom::new(1)).await.expect("Room unable to Create");
         }
 
         // over here we are going to add participant to the redis
@@ -170,9 +170,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                     // 3 people should exists in the room, inorder to start the auction
                     // here we should get dynamically what's the player_id for the specific auction room
-
+                    let last_player_id = redis_connection.last_player_id(room_id.clone()).await.unwrap() ;
                     // we are going to return the first player from the auction
-                    let player = redis_connection.get_player(1).await ;
+                    let player = redis_connection.get_player(last_player_id).await ;
                     let message ;
                     match player {
                        Ok(player) => {
@@ -180,14 +180,14 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                            // here we are going to add the player as Bid to the redis
                            let bid = Bid::new(0, player.id, 0.0, player.base_price) ; // no one yet bidded
                            redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
+                            // changing room-status
+                           app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
                        } ,
                         Err(err) => {
                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
                             message = Message::text("Technical Glitch") ;
                         }
                     } ;
-
-                    // changing room-status
 
                     // broadcasting
                     broadcast_handler(message,room_id.clone(),&app_state).await ;
@@ -196,24 +196,27 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         If previously the same participant has send the bid, then that shouldn't be considered
 
                     */
-
-                    // the participant has bided
-                   let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
-                    match result {
-                       Ok(amount) => {
-                           let message = Message::from(serde_json::to_string(&BidOutput{
-                               bid_amount: amount,
-                               team: team_name.clone()
-                           }).unwrap()) ;
-                           broadcast_handler(message,room_id.clone(),&app_state).await ;
-                       }, Err(err) => {
-                            if err == "highest" {
-                                send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
-                            }else{
-                                send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
+                    if app_state.rooms.read().await.get(&room_id).unwrap().len() >= 3 {
+                        // the participant has bided
+                        let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
+                        match result {
+                            Ok(amount) => {
+                                let message = Message::from(serde_json::to_string(&BidOutput{
+                                    bid_amount: amount,
+                                    team: team_name.clone()
+                                }).unwrap()) ;
+                                broadcast_handler(message,room_id.clone(),&app_state).await ;
+                            }, Err(err) => {
+                                if err == "highest" {
+                                    send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
+                                }else{
+                                    send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
+                                }
                             }
-                        }
-                    } ;
+                        } ;
+                    }else{
+                        send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,room_id.clone(),&app_state).await ;
+                    }
 
                 }else if text.to_string() == "end" {
                     // ending the auction

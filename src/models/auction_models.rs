@@ -5,13 +5,15 @@ use serde::{Deserialize, Serialize};
 pub struct AuctionRoom {
     pub current_bid: Option<Bid>,
     pub participants: Vec<AuctionParticipant>,
+    pub last_player_id: i32,
 } //  this is where we are going to store in redis with key as room_id and value as auction_room
 
 impl AuctionRoom {
-    pub fn new() -> Self {
+    pub fn new(last_player_id: i32) -> Self {
         Self {
             current_bid: None,
             participants: Vec::new(),
+            last_player_id,
         }
     }
     pub fn add_participant(&mut self, participant: AuctionParticipant) {

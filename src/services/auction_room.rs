@@ -231,6 +231,38 @@ impl RedisConnection {
             }
         }
     }
+
+    pub async fn last_player_id(&mut self, room_id: String) -> Result<i32, redis::RedisError> {
+        tracing::info!("getting last player id redis function was called") ;
+        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+        match value {
+            Ok(value) => {
+                let room: AuctionRoom = serde_json::from_str(&value).unwrap();
+                Ok(room.last_player_id)
+            },
+            Err(e) => {
+                tracing::warn!("error occurred while getting room details from last_player_id") ;
+                Err(e)
+            }
+        }
+    }
+    
+    pub async fn update_last_player_id(&mut self, room_id: String, player_id: i32) -> Result<(), redis::RedisError> {
+        tracing::info!("updating last player id redis function was called") ;
+        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+        match value {
+            Ok(mut value) => {
+                let mut room: AuctionRoom = serde_json::from_str(&value).unwrap();
+                room.last_player_id = player_id ;
+                let value = serde_json::to_string(&room).unwrap();
+                self.connection.set(room_id, value).await
+            },
+            Err(e) => {
+                tracing::error!("got error while updating last player id redis function was called") ;
+                Err(e)
+            }
+        }
+    }
 }
 
 
@@ -318,6 +350,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                     message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
                     // we are going to update the current bid
                     redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price), bid_expiry).await?;
+                    tracing::info!("now updating last player id") ;
+                    redis_connection.update_last_player_id(room_id.clone(), next_player).await?;
                     tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                 }else{
                     message = Message::text("Auction Completed")
