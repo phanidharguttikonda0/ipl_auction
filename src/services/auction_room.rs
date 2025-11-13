@@ -333,7 +333,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
 
             res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
             // now when people joined the room creator can click on start and from the last player it will continue
-            redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
+            let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
             let message = Message::text("Auction Stopped Temporarily, Due to no min players") ;
             broadcast_handler(message,room_id.clone(), &app_state).await ;
         }else{
