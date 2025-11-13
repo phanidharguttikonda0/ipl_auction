@@ -60,36 +60,34 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         }
     } ;
 
-    let room_exists ;
 
     if let Some(vec) = rooms.get_mut(&room_id) {
         vec.push((participant_id, tx)) ;
         tracing::info!("Room exists, adding participant {}", participant_id);
-        room_exists = true ;
     }else{
         tracing::info!("Room doesn't exist, creating a new room {}", room_id);
         rooms.insert(room_id.clone(), vec![(participant_id, tx)]);
         tracing::info!("Creating room in redis") ;
-        room_exists = false;
     }
     drop(rooms); // release lock early
-    let participant_exists = redis_connection.check_participant(participant_id, room_id.clone()).await ;
-    let participant_exists = match participant_exists {
-        Ok(participant_exists) => participant_exists,
-        Err(err) => {
-            tracing::error!("unable to get the check participant in redis") ;
-            sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
-            return;
-        }
-    } ;
+
     if room_status == "not_started" {
         // over here we are going to check room-status if room-status was not-started or pending, if it is finished, then return
          // we stored the tx, which is used to send the data to the receiver channel
 
-        if  !room_exists {
+        if  !redis_connection.check_room_existence(room_id.clone()).await.unwrap() {
+            tracing::info!("creating room in redis as it doesn't exists in redis") ;
             redis_connection.set_room(room_id.clone(), AuctionRoom::new(1)).await.expect("Room unable to Create");
         }
-
+        let participant_exists = redis_connection.check_participant(participant_id, room_id.clone()).await ;
+        let participant_exists = match participant_exists {
+            Ok(participant_exists) => participant_exists,
+            Err(err) => {
+                tracing::error!("unable to get the check participant in redis") ;
+                sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
+                return;
+            }
+        } ;
         // over here we are going to add participant to the redis
         if !participant_exists {
             let result = redis_connection.add_participant(room_id.clone(), AuctionParticipant::new(
@@ -128,11 +126,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
         }
 
-    }else if room_status == "in_progress" && !participant_exists || room_status == "completed"{
-        // now we are going to check whether the participant exists, if not exists we are going to add him
-        // because any way he was in the room , but somehow he was not able to create the ws connection and get into the room
-        sender.send(Message::text("room is closed, Auction going on")).await.expect("unable to send message");
-        return;
+    }else if room_status == "completed" {
+        sender.send(Message::text("Auction was completed, Room was Closed")).await.expect("unable to send the message to the sender") ;
     }
 
     tokio::spawn(async move {

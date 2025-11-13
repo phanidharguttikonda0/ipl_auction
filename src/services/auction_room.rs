@@ -25,6 +25,17 @@ impl RedisConnection {
         self.connection.set(room_id, serialized_room).await
     }
 
+    pub async fn check_room_existence(
+        &mut self,
+        room_id: String,
+    ) -> Result<bool, redis::RedisError> {
+        // Try to get the value for the given key
+        let value: Option<String> = self.connection.get(room_id).await?;
+
+        // If Redis returns `None`, it means the key doesn't exist
+        Ok(value.is_some())
+    }
+
     pub async fn update_current_bid(&mut self, room_id: String, bid: Bid, expiry: u8) -> Result<String, redis::RedisError> {
         let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         let timer_key = format!("auction:timer:{}", room_id);
