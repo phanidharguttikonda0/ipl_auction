@@ -249,6 +249,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
     // Subscribe to key event notifications for expired keys
     pubsub.subscribe("__keyevent@0__:expired").await?;
     let mut redis_connection = RedisConnection::new().await;
+
+    let bid_expiry = std::env::var("BID_EXPIRY").unwrap().parse::<u8>().unwrap();
+
     let mut stream = pubsub.on_message();
     while let Some(msg) = stream.next().await {
         let expired_key: String = msg.get_payload()?;
@@ -300,11 +303,11 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
         let message;
         match players {
             Ok(players) => {
-                let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
+                    let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
                 if ((next_player) as usize ) < players.len(){
                     message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
                     // we are going to update the current bid
-                    redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price), 20).await?;
+                    redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price), bid_expiry).await?;
                     tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                 }else{
                     message = Message::text("Auction Completed")
@@ -316,7 +319,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                 message = Message::text("Error Occurred while getting players from redis") ;
             }
         };
-        broadcast_handler(message,room_id, &app_state ).await ;
+        broadcast_handler(message,room_id.clone(), &app_state ).await ;
     }
 
     Ok(())
