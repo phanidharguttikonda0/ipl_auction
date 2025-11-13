@@ -320,7 +320,13 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
 
         tracing::info!("we are going to update the balance of the participant") ;
         let current_bid= res.current_bid.clone().unwrap() ;
-        if app_state.rooms.get_mut().get(&room_id).unwrap().len() < 3 {
+        let length ;
+        {
+            let rooms = &app_state.rooms;
+            let mut rooms_lock = rooms.write().await; // acquire mutable write lock
+            length = rooms_lock.get(&room_id).unwrap().len() ;
+        }
+        if length < 3 {
             tracing::info!("Auction was going to be stopped as the min members of 3 were not there in the auction") ;
             // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
 
