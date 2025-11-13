@@ -279,11 +279,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
             message = Message::text("UnSold") ;
         }
         tracing::info!("we are going to update the balance of the participant") ;
-        let details = get_participant_details(participant_id, &res.participants).unwrap() ;
-        res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
-        // need to update that particular participant purse or balance before storing the updated value in redis
-        let current_bid = res.current_bid.clone().unwrap() ;
-        res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
+        let current_bid= res.current_bid.clone().unwrap() ;
+        if participant_id != 0 {
+            let details = get_participant_details(participant_id, &res.participants).unwrap() ;
+            res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
+            res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
+        }
         let res = serde_json::to_string(&res).unwrap();
         conn.set::<_,_,()>(&room_id, res).await?;
         tracing::info!("we are going to broadcast the message to the room participant") ;
