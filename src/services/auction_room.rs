@@ -179,19 +179,21 @@ impl RedisConnection {
                 let participant = get_participant_details(participant_id, &room.participants).unwrap().0;
                 let balance = participant.balance;
                 let players_brought = participant.total_players_brought;
+                let next_bid = ((previous_bid + next_bid_increment) * 100.0).round() / 100.0;
+
                 // calculating bid allowance for the participant
-                let is_allowed = bid_allowance_handler(room_id.clone(),  previous_bid + next_bid_increment,
+                let is_allowed = bid_allowance_handler(room_id.clone(),  next_bid,
                 balance, players_brought).await;
                 tracing::info!("is bid allowed {}", is_allowed) ;
                 if is_allowed {
-                    room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, previous_bid + next_bid_increment, current_bid.base_price)) ;
+                    room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, next_bid, current_bid.base_price)) ;
                     let room = serde_json::to_string(&room).unwrap();
                     tracing::info!("room was serialized ") ;
                     self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
                     // it gets restarted if any bid comes before 20 seconds
                     let res = self.connection.set_ex::<_,_, ()>(&timer_key, "active", expiry_time as u64).await;
 
-                    Ok(previous_bid + next_bid_increment)
+                    Ok(next_bid)
                 }else { 
                     Err("Amount is InSufficient to buy the player".to_string()) 
                 }
@@ -244,7 +246,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
     let mut conn = client.get_multiplexed_async_connection().await?;
     // Subscribe to key event notifications for expired keys
     pubsub.subscribe("__keyevent@0__:expired").await?;
-
+    let mut redis_connection = RedisConnection::new().await;
     let mut stream = pubsub.on_message();
     while let Some(msg) = stream.next().await {
         let expired_key: String = msg.get_payload()?;
@@ -299,16 +301,20 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                 let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
                 if ((next_player) as usize ) < players.len(){
                     message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
+                    // we are going to update the current bid
+                    redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price), 20).await?;
+                    tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                 }else{
                     message = Message::text("Auction Completed")
                 }
-                broadcast_handler(message,room_id, &app_state ).await ;
             },
             Err(err) => {
                 tracing::warn!("error occurred while getting players") ;
-                message = Message::text("retry later")
+                tracing::error!("error was {}", err) ;
+                message = Message::text("Error Occurred while getting players from redis") ;
             }
         };
+        broadcast_handler(message,room_id, &app_state ).await ;
     }
 
     Ok(())
