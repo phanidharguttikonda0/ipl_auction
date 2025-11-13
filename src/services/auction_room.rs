@@ -323,15 +323,17 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
         let length ;
         {
             let rooms = &app_state.rooms;
-            let mut rooms_lock = rooms.write().await; // acquire mutable write lock
+            let mut rooms_lock = rooms.read().await; // acquire mutable write lock
             length = rooms_lock.get(&room_id).unwrap().len() ;
         }
+        tracing::info!("length of room {}", length) ;
         if length < 3 {
             tracing::info!("Auction was going to be stopped as the min members of 3 were not there in the auction") ;
             // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
 
             res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
             // now when people joined the room creator can click on start and from the last player it will continue
+            redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
             let message = Message::text("Auction Stopped Temporarily, Due to no min players") ;
             broadcast_handler(message,room_id.clone(), &app_state).await ;
         }else{
