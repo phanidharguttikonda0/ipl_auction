@@ -246,7 +246,7 @@ impl RedisConnection {
             }
         }
     }
-    
+
     pub async fn update_last_player_id(&mut self, room_id: String, player_id: i32) -> Result<(), redis::RedisError> {
         tracing::info!("updating last player id redis function was called") ;
         let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
@@ -312,7 +312,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
             res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
         }
 
-        if res.current_bid.clone().unwrap().bid_amount != 0.0 {
+        if current_bid.clone().bid_amount != 0.0 {
             message= Message::from(
                 serde_json::to_string(&SoldPlayer {
                     team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
