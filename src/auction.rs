@@ -208,7 +208,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                            broadcast_handler(message,room_id.clone(),&app_state).await ;
                        }, Err(err) => {
                             if err == "highest" {
-                                broadcast_handler(Message::text("You are already the highest bidder"), room_id.clone(),&app_state).await ;
+                                send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
                             }else{
                                 send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
                             }

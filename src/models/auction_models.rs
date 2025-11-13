@@ -67,6 +67,7 @@ pub struct BidOutput {
 pub struct SoldPlayer {
     pub team_name: String,
     pub sold_price: f32,
+    pub(crate) remaining_balance: f32
 }
 
 #[derive(Debug,Clone, Serialize, Deserialize)]

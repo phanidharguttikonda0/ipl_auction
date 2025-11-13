@@ -226,4 +226,22 @@ impl DatabaseAccess {
             }
         }
     }
+    
+    pub async fn update_balance(&self, room_id: String, participant_id: i32, remaining_balance: f32) -> Result<(), sqlx::Error> {
+        tracing::info!("Executing the update_balance to update balance in psql") ;
+        let updated = sqlx::query("update participants set purse_remaining=$1 where room_id=$2 and id=$3")
+            .bind(remaining_balance)
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .bind(participant_id)
+            .execute(&self.connection).await ;
+        
+        match updated { 
+            Ok(_) => Ok(()) ,
+            Err(err) => {
+                tracing::error!("Occurred while updating the balance in the postgres") ;
+                Err(err)
+            }
+            
+        }
+    }
 }

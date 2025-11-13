@@ -268,22 +268,27 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
         let message;
         let participant_id = res.current_bid.clone().unwrap().participant_id ;
         let player_id = res.current_bid.clone().unwrap().player_id ;
+
+        tracing::info!("we are going to update the balance of the participant") ;
+        let current_bid= res.current_bid.clone().unwrap() ;
+        let mut remaining_balance: f32 = 0.0 ;
+        if participant_id != 0 {
+            let details = get_participant_details(participant_id, &res.participants).unwrap() ;
+            res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
+            remaining_balance = res.participants[details.1 as usize].balance ;
+            res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
+        }
+
         if res.current_bid.clone().unwrap().bid_amount != 0.0 {
             message= Message::from(
                 serde_json::to_string(&SoldPlayer {
                     team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
-                    sold_price: res.current_bid.clone().unwrap().bid_amount
+                    sold_price: current_bid.clone().bid_amount,
+                    remaining_balance
                 }).unwrap()
             );
         }else{
             message = Message::text("UnSold") ;
-        }
-        tracing::info!("we are going to update the balance of the participant") ;
-        let current_bid= res.current_bid.clone().unwrap() ;
-        if participant_id != 0 {
-            let details = get_participant_details(participant_id, &res.participants).unwrap() ;
-            res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
-            res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
         }
         let res = serde_json::to_string(&res).unwrap();
         conn.set::<_,_,()>(&room_id, res).await?;
@@ -294,6 +299,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
         if current_bid.bid_amount != 0.0 {
             tracing::info!("player was a sold player") ;
             app_state.database_connection.add_sold_player(room_id.clone(), current_bid.player_id, current_bid.participant_id, current_bid.bid_amount).await.unwrap();
+            // updating the participant balance in the participant table
+            app_state.database_connection.update_balance(room_id.clone(), current_bid.participant_id, remaining_balance).await.unwrap() ;
+            tracing::info!("successfully updated the balance in the psql") ;
         }else {
             tracing::info!("player was an unsold player") ;
             app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
