@@ -215,7 +215,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 }else if text.to_string() == "end" {
                     // ending the auction
-
+                    // when we click on end we are getting only exit as the message with out any reson
                     // check whether he was the creator of the room
                     let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
                     match result {
@@ -234,7 +234,12 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     let message ;
                     match res {
                         Ok(res) => {
-                            message = Message::text("exit") ;
+                            if res {
+                                message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
+                                // when front-end has disconnected automatically it's going to be the end.
+                            }else {
+                                message = Message::text("Not enough players brought by each team") ;
+                            }
                         },
                         Err(err) => {
                             tracing::info!("Unable to get the room") ;
