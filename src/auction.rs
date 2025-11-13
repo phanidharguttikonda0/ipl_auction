@@ -172,7 +172,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     // here we should get dynamically what's the player_id for the specific auction room
 
                     // we are going to return the first player from the auction
-                    let player = redis_connection.get_player(1).await ;
+                    let player = redis_connection.get_player(624).await ;
                     let message ;
                     match player {
                        Ok(player) => {
