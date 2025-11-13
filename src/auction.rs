@@ -252,12 +252,14 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 // we are removing the disconnected client, such that the unbounded channel will not overload , if queue is filled with multiple disconnected message to client
                 let mut value = app_state.rooms.write().await ;
                 let mut index: u8 = 0 ;
+
                 for participant in value.get(&room_id).unwrap().iter() {
                     if participant.0 == participant_id {
                         break
                     }
                     index += 1 ;
                 }
+
                 value.get_mut(&room_id).unwrap().remove(index as usize);
                 drop(value) ;
                 return;
