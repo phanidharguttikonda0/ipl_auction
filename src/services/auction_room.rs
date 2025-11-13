@@ -163,7 +163,9 @@ impl RedisConnection {
                 let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
                 let current_bid = room.current_bid.unwrap();
                 let mut previous_bid = current_bid.bid_amount ;
-
+                if current_bid.participant_id == participant_id {
+                    return Err("highest".to_string())
+                }
                 let next_bid_increment ;
                 if previous_bid == 0.0 {
                     next_bid_increment = current_bid.base_price ;
