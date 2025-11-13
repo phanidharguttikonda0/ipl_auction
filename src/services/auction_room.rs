@@ -248,8 +248,14 @@ impl RedisConnection {
         let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         match value {
             Ok(value) => {
-                let room: AuctionRoom = serde_json::from_str(&value).unwrap();
-                Ok(room.last_player_id)
+                tracing::info!("let's get the value , whether it was null or it contains room") ;
+                match serde_json::from_str::<AuctionRoom>(&value) { 
+                    Ok(val) => Ok(val.last_player_id),
+                    Err(err) => {
+                        tracing::warn!("no last value") ;
+                        Ok(1)
+                    }
+                }
             },
             Err(e) => {
                 tracing::warn!("error occurred while getting room details from last_player_id") ;
