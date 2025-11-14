@@ -178,7 +178,7 @@ pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): 
 pub async fn get_rooms_played(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>) ->  Result<(StatusCode, Json<Vec<Rooms>>),(StatusCode, Json<serde_json::Value>)> {
     // returns the room-ids along with dates
     tracing::info!("getting rooms played by user-id {}", user.user_id);
-
+    // we need to get from the participants not from the rooms table
     match app_state.database_connection.get_rooms(user.user_id).await {
         Ok(rooms) => {
             tracing::info!("got the rooms played by user-id {}", user.user_id);

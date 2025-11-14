@@ -394,16 +394,24 @@ impl DatabaseAccess {
     }
 
     pub async fn get_rooms(&self, user_id: i32) -> Result<Vec<Rooms>, sqlx::Error> {
-        let rooms = sqlx::query("select id::TEXT,created_at from rooms where creator_id=$1")
+        let rooms = sqlx::query("SELECT
+            r.id::TEXT AS room_id,
+            r.created_at
+        FROM rooms r
+        JOIN participants p
+            ON r.id = p.room_id
+        WHERE p.user_id = $1
+        ORDER BY r.created_at DESC;
+        ")
             .bind(user_id)
-            .fetch_all(&self.connection).await ;
+            .fetch_all(&self.connection).await ; // we need to get created at from the rooms table
 
         match rooms {
             Ok(rooms) => {
                 tracing::info!("got the rooms from the user {}", user_id) ;
                 let mut rooms_ = vec![] ;
                 for room in rooms.iter() {
-                    let room_id = room.get("id") ;
+                    let room_id = room.get("room_id") ;
                     let created_at = room.get("created_at") ;
                     rooms_.push(Rooms {
                         room_id, created_at

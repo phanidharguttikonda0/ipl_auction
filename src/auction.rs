@@ -11,8 +11,9 @@ use crate::services::auction_room::RedisConnection;
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use crate::models::authentication_models::Claims;
+use crate::models::room_models::Participant;
 
-pub async fn ws_handler(ws: WebSocketUpgrade,Extension(user): Extension<Claims> ,Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn ws_handler(ws: WebSocketUpgrade, Extension(user): Extension<Claims>, Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| socket_handler(socket, room_id, participant_id, app_state))
 }
 
@@ -270,8 +271,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     index += 1 ;
                 }
 
+                /*
+                    need to broadcast which participant has been disconnected , and when joins we are any way sending the message
+                */
+
                 value.get_mut(&room_id).unwrap().remove(index as usize);
                 drop(value) ;
+                broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name })), room_id.clone(), &app_state).await ;
                 return;
             }
             Message::Binary(bytes) => todo!(),
