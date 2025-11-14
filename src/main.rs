@@ -1,6 +1,7 @@
 use std::sync::{Arc};
 use tokio::sync::RwLock;
 use axum::{middleware, Router};
+use axum::http::Method;
 use axum::routing::{get, post};
 use dotenv::dotenv;
 use tokio::task;
@@ -12,7 +13,7 @@ use crate::routes::rooms_routes::rooms_routes;
 use crate::services::auction::DatabaseAccess;
 use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
-
+use tower_http::cors::{CorsLayer, Any};
 mod models;
 mod auction;
 mod services;
@@ -48,7 +49,16 @@ async fn routes() -> Router {
             tracing::error!("Redis expiry listener failed: {:?}", e);
         }
     });
-
+    // Configure CORS
+    let cors = CorsLayer::new()
+        .allow_origin([
+            "https://ipl-auction.phani.services".parse().unwrap(),
+            "http://localhost:3000".parse().unwrap(),
+            "http://127.0.0.1:3000".parse().unwrap(),
+        ])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+        .allow_headers(Any)        // allow all headers
+        .allow_credentials(true);  // allow cookies if needed
 
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
@@ -57,5 +67,6 @@ async fn routes() -> Router {
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
+        .layer(cors)
         .with_state(state)
 }
