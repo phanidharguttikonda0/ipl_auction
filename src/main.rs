@@ -1,7 +1,7 @@
 use std::sync::{Arc};
 use tokio::sync::RwLock;
 use axum::{middleware, Router};
-use axum::http::Method;
+use axum::http::{header, Method};
 use axum::routing::{get, post};
 use dotenv::dotenv;
 use tokio::task;
@@ -57,8 +57,13 @@ async fn routes() -> Router {
             "http://127.0.0.1:3000".parse().unwrap(),
         ])
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-        .allow_headers(Any)        // allow all headers
-        .allow_credentials(true);  // allow cookies if needed
+        .allow_credentials(true)
+        .allow_headers([
+            header::ACCEPT,
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+        ]);
+
 
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
