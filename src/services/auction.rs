@@ -5,7 +5,7 @@ use crate::models::app_state::Player;
 use dotenv::dotenv;
 use redis::AsyncCommands;
 use crate::models::player_models::{PlayerDetails, TeamDetails};
-use crate::models::room_models::Participant;
+use crate::models::room_models::{Participant, Rooms};
 
 #[derive(Debug, Clone)]
 pub struct DatabaseAccess {
@@ -315,7 +315,7 @@ impl DatabaseAccess {
     {
         let rows = sqlx::query(
             r#"
-        SELECT 
+        SELECT
             sp.player_id,
             p.name,
             p.role,
@@ -351,14 +351,14 @@ impl DatabaseAccess {
             }
         }
     }
-    
-    
+
+
     pub async fn get_remaining_balance(&self, participant_id: i32) -> Result<f32, sqlx::Error> {
         let balance = sqlx::query("select purse_remaining from participants where id=$1")
             .bind(participant_id)
             .fetch_one(&self.connection).await ;
-        
-        match balance { 
+
+        match balance {
             Ok(balance) => {
                 tracing::info!("got the balance") ;
                 Ok(balance.get("purse_remaining"))
@@ -369,7 +369,61 @@ impl DatabaseAccess {
                 Err(err)
             }
         }
-        
+
+    }
+
+    pub async fn get_rooms(&self, user_id: i32) -> Result<Vec<Rooms>, sqlx::Error> {
+        let rooms = sqlx::query("select id::TEXT,created_at from rooms where user_id=$1")
+            .bind(user_id)
+            .fetch_all(&self.connection).await ;
+
+        match rooms {
+            Ok(rooms) => {
+                tracing::info!("got the rooms from the user {}", user_id) ;
+                let mut rooms_ = vec![] ;
+                for room in rooms.iter() {
+                    let room_id = room.get("id") ;
+                    let created_at = room.get("created_at") ;
+                    rooms_.push(Rooms {
+                        room_id, created_at
+                    }) ;
+
+                }
+                Ok(rooms_)
+            },
+            Err(err) => {
+                tracing::error!("error occurred while getting rooms") ;
+                tracing::error!("{}",err) ;
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn get_participants_in_room(&self, room_id: String) -> Result<Vec<Participant>, sqlx::Error> {
+        let participants = sqlx::query("select participant_id,team_selected from participants where room_id=$1")
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .fetch_all(&self.connection).await ;
+
+        match participants {
+            Ok(participants) => {
+                tracing::info!("got the participants from the room") ;
+
+                let mut participants_ = vec![] ;
+                for participant in participants.iter() {
+                    let participant_id = participant.get("participant_id") ;
+                    let team_selected = participant.get("team_selected") ;
+                    participants_.push(Participant{
+                        participant_id, team_name: team_selected
+                    }) ;
+                }
+                Ok(participants_)
+            }, Err(err) => {
+                tracing::error!("got an error while getting participants in room") ;
+                tracing::error!("{}", err) ;
+                Err(err)
+            }
+        }
+
     }
 
 }

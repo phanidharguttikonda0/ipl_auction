@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use serde_json::json;
 use crate::models::app_state::AppState;
 use crate::models::authentication_models::Claims;
-use crate::models::room_models::{Participant, ParticipantsWithTeam};
+use crate::models::room_models::{Participant, ParticipantsWithTeam, Rooms};
 use crate::models::player_models::Teams;
 
 pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(team_name) : Path<String>) -> impl IntoResponse  {
@@ -171,6 +171,57 @@ pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): 
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "message": "Internal Server Error" })),
             )
+        }
+    }
+}
+
+pub async fn get_rooms_played(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>) ->  Result<(StatusCode, Json<Vec<Rooms>>),(StatusCode, Json<serde_json::Value>)> {
+    // returns the room-ids along with dates
+    tracing::info!("getting rooms played by user-id {}", user.user_id);
+
+    match app_state.database_connection.get_rooms(user.user_id).await {
+        Ok(rooms) => {
+            tracing::info!("got the rooms played by user-id {}", user.user_id);
+            Ok((
+                StatusCode::OK,
+                Json(rooms)
+            ))
+        },
+        Err(err) => {
+            tracing::error!("error occurred while getting rooms played by user-id {}", user.user_id);
+            Err((
+
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({
+                        "message" : "error in getting rooms"
+                    })
+                )
+                ))
+        }
+    }
+
+}
+
+pub async fn get_participants_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(room_id): Path<String>) -> Result<(StatusCode, Json<Vec<Participant>>),(StatusCode, Json<serde_json::Value>)> {
+    match app_state.database_connection.get_participants_in_room(room_id.clone()).await {
+        Ok(participants) => {
+            tracing::info!("got the participants in room {}", room_id);
+            Ok((
+                StatusCode::OK,
+                Json(participants)
+            ))
+        },
+        Err(err) => {
+            tracing::error!("error occurred while getting participants in room {}", room_id);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({
+                        "message" : "error in getting rooms"
+                    })
+                )
+                ))
         }
     }
 }

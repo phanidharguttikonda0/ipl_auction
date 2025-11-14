@@ -16,3 +16,10 @@ pub struct ParticipantsWithTeam {
 pub struct Teams {
     teams: Vec<String>,
 }
+
+use chrono::{DateTime, Utc};
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Rooms {
+    pub(crate) room_id: String,
+    pub(crate) created_at: DateTime<Utc>,
+}
