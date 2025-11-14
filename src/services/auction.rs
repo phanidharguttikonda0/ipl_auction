@@ -361,8 +361,8 @@ impl DatabaseAccess {
         match balance {
             Ok(balance) => {
                 tracing::info!("got the balance") ;
-                tracing::info!("{} -> ", balance.get("purse_remaining")) ;
                 let value = balance.get("purse_remaining") ;
+                tracing::info!("{} -> ", value) ;
                 Ok(value)
             },
             Err(err) => {
