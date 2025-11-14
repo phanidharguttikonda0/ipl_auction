@@ -104,7 +104,7 @@ impl DatabaseAccess {
     }
 
     pub async fn get_remaining_teams(&self, room_id: String) -> Result<Vec<String>, sqlx::Error> {
-        let teams = sqlx::query("select team_name from participants where room_id = $1")
+        let teams = sqlx::query("select team_selected from participants where room_id = $1")
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .fetch_all(&self.connection).await ;
         match teams {
