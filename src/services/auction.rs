@@ -109,9 +109,27 @@ impl DatabaseAccess {
             .fetch_all(&self.connection).await ;
         match teams {
             Ok(teams_selected) => {
-                let mut teams: Vec<String> = vec![] ;
+                let mut teams = vec![
+                    "Mumbai Indians".to_string(),
+                    "Chennai Super Kings".to_string(),
+                    "Sun Risers Hyderabad".to_string(),
+                    "Punjab Kings".to_string(),
+                    "Rajasthan Royals".to_string(),
+                    "Royal Challengers Bangalore".to_string(),
+                    "Kolkata Knight Riders".to_string(),
+                    "Delhi Capitals".to_string(),
+                    "Lucknow Super Gaints".to_string(),
+                    "Gujarat Titans".to_string(),
+                ];
+
                 for team in teams_selected {
-                    teams.push(team.get("team_selected"))
+                    let i = 0 ;
+                    while i < teams?.len() {
+                        if team == teams[i] { 
+                            teams.remove(i) ;
+                            break;
+                        }
+                    }
                 }
                 Ok(teams)
             },
