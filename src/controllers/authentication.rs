@@ -33,7 +33,7 @@ pub async fn authentication_handler(State(app_state): State<Arc<AppState>>, Form
         .bind(&username)
         .bind(&gmail)
         .bind(&details.google_sid)
-        .bind(details.favorite_team.unwrap())
+        .bind(details.favorite_team.unwrap_or_else(|| "".to_string()))
         .fetch_optional(&app_state.database_connection.connection)
         .await.unwrap();
 
