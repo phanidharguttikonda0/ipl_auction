@@ -1,6 +1,6 @@
 use std::sync::{Arc};
 use tokio::sync::RwLock;
-use axum::{middleware, Router};
+use axum::{http, middleware, Router};
 use axum::http::{header, Method};
 use axum::routing::{get, post};
 use dotenv::dotenv;
@@ -74,7 +74,8 @@ async fn routes() -> Router {
             header::HeaderName::from_static("sec-fetch-site"),
             header::HeaderName::from_static("sec-fetch-mode"),
             header::HeaderName::from_static("sec-fetch-dest"),
-        ]);
+        ]).expose_headers([http::header::AUTHORIZATION])
+        ;
 
 
 

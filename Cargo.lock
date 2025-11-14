@@ -982,6 +982,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "futures-util",
+ "http",
  "json-web-token",
  "jsonwebtoken",
  "redis",
