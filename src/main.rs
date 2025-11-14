@@ -14,6 +14,7 @@ use crate::services::auction::DatabaseAccess;
 use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
 use tower_http::cors::{CorsLayer, Any};
+use tower::ServiceBuilder;
 mod models;
 mod auction;
 mod services;
@@ -72,6 +73,9 @@ async fn routes() -> Router {
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
-        .layer(cors)
+        .layer(
+            ServiceBuilder::new()
+                .layer(cors) // CORS wrapped properly
+        )
         .with_state(state)
 }
