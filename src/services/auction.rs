@@ -111,7 +111,7 @@ impl DatabaseAccess {
             Ok(teams_selected) => {
                 let mut teams: Vec<String> = vec![] ;
                 for team in teams_selected {
-                    teams.push(team.get("id"))
+                    teams.push(team.get("team_selected"))
                 }
                 Ok(teams)
             },
