@@ -57,13 +57,25 @@ async fn routes() -> Router {
             "http://localhost:3000".parse().unwrap(),
             "http://127.0.0.1:3000".parse().unwrap(),
         ])
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,   // IMPORTANT
+        ])
         .allow_credentials(true)
         .allow_headers([
             header::ACCEPT,
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
+            header::HeaderName::from_static("x-requested-with"),
+            header::HeaderName::from_static("sec-fetch-site"),
+            header::HeaderName::from_static("sec-fetch-mode"),
+            header::HeaderName::from_static("sec-fetch-dest"),
         ]);
+
 
 
     // here we are going to load all the players from the database to the redis
