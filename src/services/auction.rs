@@ -124,8 +124,9 @@ impl DatabaseAccess {
 
                 for team in teams_selected {
                     let i = 0 ;
-                    while i < teams?.len() {
-                        if team == teams[i] { 
+                    while i < teams.len() {
+                        let team_name: String = team.get("team_selected") ;
+                        if team_name == teams[i] {
                             teams.remove(i) ;
                             break;
                         }
