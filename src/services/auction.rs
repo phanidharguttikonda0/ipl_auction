@@ -373,7 +373,7 @@ impl DatabaseAccess {
     }
 
     pub async fn get_rooms(&self, user_id: i32) -> Result<Vec<Rooms>, sqlx::Error> {
-        let rooms = sqlx::query("select id::TEXT,created_at from rooms where user_id=$1")
+        let rooms = sqlx::query("select id::TEXT,created_at from rooms where creator_id=$1")
             .bind(user_id)
             .fetch_all(&self.connection).await ;
 
@@ -400,7 +400,7 @@ impl DatabaseAccess {
     }
 
     pub async fn get_participants_in_room(&self, room_id: String) -> Result<Vec<Participant>, sqlx::Error> {
-        let participants = sqlx::query("select participant_id,team_selected from participants where room_id=$1")
+        let participants = sqlx::query("select id,team_selected from participants where room_id=$1")
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .fetch_all(&self.connection).await ;
 
