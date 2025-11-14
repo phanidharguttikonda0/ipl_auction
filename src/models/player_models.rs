@@ -58,3 +58,20 @@ pub struct PlayerBrought {
     pub role : String,
     pub amount: u8
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TeamDetails {
+    pub remaining_balance: f32,
+    pub total_players: i32,
+    pub total_batsmans: i32,
+    pub total_bowlers: i32,
+    pub all_rounders: i32
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PlayerDetails {
+    pub player_id: i32,
+    pub player_name: String,
+    pub role: String,
+    pub brought_price: f32
+}

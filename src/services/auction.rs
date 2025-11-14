@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::models::app_state::Player;
 use dotenv::dotenv;
 use redis::AsyncCommands;
+use crate::models::player_models::{PlayerDetails, TeamDetails};
 use crate::models::room_models::Participant;
 
 #[derive(Debug, Clone)]
@@ -261,4 +262,114 @@ impl DatabaseAccess {
 
         }
     }
+
+    pub async fn get_team_details(&self, participant_id: i32) -> Result<(i32,i32,i32,i32), sqlx::Error> {
+        let rows = sqlx::query(
+            r#"
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM sold_players
+                         WHERE participant_id = $1) AS total_count,
+                        p.role,
+                        COUNT(*) AS role_count
+                    FROM sold_players sp
+                    JOIN players p ON sp.player_id = p.id
+                    WHERE sp.participant_id = $1
+                    GROUP BY p.role
+                    "#,
+                        )
+                            .bind(participant_id)
+                            .fetch_all(&self.connection)
+                            .await;
+
+        match rows {
+            Ok(rows) => {
+                let mut bat_count = 0;
+                let mut bowl_count = 0;
+                let mut ar_count = 0;
+
+                for row in rows {
+                    let role: String = row.get("role");
+                    let count: i64 = row.get("role_count");
+
+                    match role.as_str() {
+                        "BAT" => bat_count = count as i32,
+                        "BOWL" => bowl_count = count as i32,
+                        "AR" => ar_count = count as i32,
+                        _ => {}
+                    }
+                }
+
+                let total_count = bat_count + bowl_count + ar_count;
+                Ok((total_count, bat_count, bowl_count, ar_count))
+
+            },
+            Err(err) => {
+                tracing::error!("error occurred while fetching team details") ;
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn get_team_players(&self, participant_id: i32) -> Result<Vec<PlayerDetails>, sqlx::Error>
+    {
+        let rows = sqlx::query(
+            r#"
+        SELECT 
+            sp.player_id,
+            p.name,
+            p.role,
+            sp.amount
+        FROM sold_players sp
+        JOIN players p ON sp.player_id = p.id
+        WHERE sp.participant_id = $1
+        "#
+        )
+            .bind(participant_id)
+            .fetch_all(&self.connection)
+            .await;
+
+        match rows {
+            Ok(rows) => {
+                tracing::info!("got the player details");
+
+                let players = rows.into_iter().map(|row| {
+                    PlayerDetails {
+                        player_id: row.get::<i32, _>("player_id"),
+                        player_name: row.get::<String, _>("name"),
+                        role: row.get::<String, _>("role"),
+                        brought_price: row.get::<f32, _>("amount"),
+                    }
+                }).collect::<Vec<PlayerDetails>>();
+
+                Ok(players)
+            }
+
+            Err(err) => {
+                tracing::error!("error occurred while getting team players: {}", err);
+                Err(err)
+            }
+        }
+    }
+    
+    
+    pub async fn get_remaining_balance(&self, participant_id: i32) -> Result<f32, sqlx::Error> {
+        let balance = sqlx::query("select purse_remaining from participants where id=$1")
+            .bind(participant_id)
+            .fetch_one(&self.connection).await ;
+        
+        match balance { 
+            Ok(balance) => {
+                tracing::info!("got the balance") ;
+                Ok(balance.get("purse_remaining"))
+            },
+            Err(err) => {
+                tracing::error!("got error while getting remaining balance") ;
+                tracing::error!("{}", err) ;
+                Err(err)
+            }
+        }
+        
+    }
+
 }
