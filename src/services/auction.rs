@@ -410,7 +410,7 @@ impl DatabaseAccess {
 
                 let mut participants_ = vec![] ;
                 for participant in participants.iter() {
-                    let participant_id = participant.get("id") ;
+                    let participant_id: i32 = participant.get("id") ;
                     let team_selected = participant.get("team_selected") ;
                     participants_.push(Participant{
                         participant_id, team_name: team_selected
