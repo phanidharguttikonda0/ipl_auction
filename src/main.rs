@@ -85,8 +85,8 @@ async fn routes() -> Router {
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
-        .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .layer(cors) // <-- apply globally
+        .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .with_state(state);
 
     app
