@@ -73,7 +73,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     }
     drop(rooms); // release lock early
 
-    if room_status == "not_started" {
+    if room_status == "not_started" || room_status == "in_progress" {
         // over here we are going to check room-status if room-status was not-started or pending, if it is finished, then return
          // we stored the tx, which is used to send the data to the receiver channel
 
@@ -91,7 +91,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             }
         } ;
         // over here we are going to add participant to the redis
-        if !participant_exists {
+        if !participant_exists && room_status == "not_started" {
             let result = redis_connection.add_participant(room_id.clone(), AuctionParticipant::new(
                 participant_id,
                 team_name.clone()
@@ -107,21 +107,27 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     return;
                 }
             };
-
-            // after joining we need to send that this particular participant with this team has joined the room , to all the
-            // participants in the room
-            broadcast_handler(Message::from(serde_json::to_string(&NewJoiner {
-                participant_id,
+            tracing::info!("sending the new participant to all other participants") ;
+            let participant = AuctionParticipant {
+                id: participant_id,
                 team_name: team_name.clone(),
-                balance: 100.00
-            }).unwrap()), room_id.clone(), &app_state).await;
+                balance: 100.00,
+                total_players_brought: 0,
+            } ;
+            broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
-        }else{
+
+        }else if !participant_exists {
+          tracing::info!("participant not exists and room_status was in_progress") ;
+            send_himself(Message::text("Auction Started Room was close"), participant_id, room_id, &app_state).await ;
+            return;
+        } else{
             let Some(participant) = redis_connection.get_participant(room_id.clone(),participant_id).await.unwrap() else {
                 tracing::error!("The participant was in the redis room but we are not getting the participant from the get_participant") ;
                 sender.send(Message::text("Your not in the room")).await.expect("unable to send message");
                 return;
             } ;
+            tracing::info!("sending the new participant to all other participants") ;
             // here we are going to get the details of the old participant, and sending the old participant details
             broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
@@ -131,6 +137,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     }else if room_status == "completed" {
         sender.send(Message::text("Auction was completed, Room was Closed")).await.expect("unable to send the message to the sender") ;
     }
+
+
 
     tracing::info!("getting all participants") ;
     // we need to send the remaining participants list over here
@@ -151,6 +159,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         tracing::info!("sent all active participants list to the participant") ;
 
 
+
+
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if let Err(err) = sender.send(msg).await {
@@ -160,6 +170,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         }
         tracing::info!("Message forwarding task ended");
     });
+
 
 
 
