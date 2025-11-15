@@ -82,7 +82,7 @@ async fn routes() -> Router {
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     Router::new().route("/", get(|| async { "Hello, World!" }))
-        .route("/ws/{room_id}/{participant_id}", get(ws_handler).layer(middleware::from_fn(auth_check))) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
+        .route("/ws/{room_id}/{participant_id}", get(ws_handler)) // for the initial handshake it's just a GET request, after handshake the client and server exchange the data via websocket not any more http
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
