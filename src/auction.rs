@@ -131,6 +131,14 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         sender.send(Message::text("Auction was completed, Room was Closed")).await.expect("unable to send the message to the sender") ;
     }
 
+    tracing::info!("getting all participants") ;
+    // we need to send the remaining participants list over here
+    let participants = redis_connection.get_participants(room_id.clone()).await.unwrap() ;
+    send_himself(
+        Message::from(serde_json::to_string(&participants).unwrap()),participant_id, room_id.clone(), &app_state
+    ).await ; //> sending remaining participants their team name and participant_id
+    tracing::info!("sent all participants list to the participant") ;
+
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if let Err(err) = sender.send(msg).await {

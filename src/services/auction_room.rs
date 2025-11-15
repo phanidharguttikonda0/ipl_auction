@@ -263,6 +263,19 @@ impl RedisConnection {
             }
         }
     }
+    
+    pub async fn get_participants(&mut self, room_id: String) -> Result<Vec<AuctionParticipant>, redis::RedisError> {
+        let mut value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+        match value {
+            Ok(mut value) => {
+                let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
+                Ok(value.participants)
+            },
+            Err(e) => {
+                Err(e)
+            }
+        }
+    }
 
     pub async fn update_last_player_id(&mut self, room_id: String, player_id: i32) -> Result<(), redis::RedisError> {
         tracing::info!("updating last player id redis function was called") ;
@@ -289,6 +302,7 @@ use tokio_stream::StreamExt;
 use redis::{Client, aio::PubSub};
 use axum::extract::ws::{Message};
 use serde_json::Error;
+use crate::models::room_models::Participant;
 
 pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>) -> redis::RedisResult<()> {
     tracing::info!("🔔 Redis expiry listener started");
