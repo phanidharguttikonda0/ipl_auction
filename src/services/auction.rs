@@ -59,29 +59,6 @@ impl DatabaseAccess {
     }
 
 
-    pub async fn is_room_creator(
-        &self,
-        participant_id: i32,
-        room_id: String,
-    ) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query(
-            r#"
-        SELECT CASE
-                   WHEN r.creator_id = p.user_id THEN TRUE
-                   ELSE FALSE
-               END AS is_creator
-        FROM participants p
-        JOIN rooms r ON p.room_id = r.id
-        WHERE p.id = $1 AND p.room_id = $2
-        "#
-        )
-            .bind(participant_id)
-            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
-            .fetch_one(&self.connection)
-            .await?;
-
-        Ok(row.try_get::<bool, _>("is_creator")?)
-    }
 
     pub async fn create_room(&self, user_id: i32) -> Result<String, sqlx::Error> {
         let room = sqlx::query("insert into rooms (creator_id) values ($1) returning id")
@@ -454,5 +431,35 @@ impl DatabaseAccess {
         }
 
     }
+
+    pub async fn is_room_creator(
+        &self,
+        participant_id: i32,
+        room_id: String,
+    ) -> Result<bool, sqlx::Error> {
+        tracing::info!("is the room-creator") ;
+        let is_creator: Option<bool> = sqlx::query_scalar(
+            r#"
+        SELECT
+            CASE
+                WHEN r.creator_id = p.user_id THEN TRUE
+                ELSE FALSE
+            END AS is_creator
+        FROM participants p
+        JOIN rooms r
+            ON r.id = p.room_id
+        WHERE p.id = $1
+          AND p.room_id = $2;
+        "#
+        )
+            .bind(participant_id)
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .fetch_optional(&self.connection)
+            .await?;
+
+        // If no row found, return false
+        Ok(is_creator.unwrap_or(false))
+    }
+
 
 }

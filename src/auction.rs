@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use axum::Extension;
 use axum::extract::{Path, State, WebSocketUpgrade};
@@ -133,11 +134,22 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
     tracing::info!("getting all participants") ;
     // we need to send the remaining participants list over here
-    let participants = redis_connection.get_participants(room_id.clone()).await.unwrap() ;
-    send_himself(
-        Message::from(serde_json::to_string(&participants).unwrap()),participant_id, room_id.clone(), &app_state
-    ).await ; //> sending remaining participants their team name and participant_id
-    tracing::info!("sent all participants list to the participant") ;
+    let mut participants = redis_connection.get_participants(room_id.clone()).await.unwrap() ;
+    // before sending let's revamp the current active connections
+
+        // first convert to hashmap
+        let mut hashmap = HashMap::new() ;
+    {
+        for participant in app_state.rooms.read().await.get(&room_id).unwrap().iter() {
+            hashmap.insert(participant.0, true) ;
+        }
+    }
+        participants.retain(|p| hashmap.contains_key(&p.id));
+        send_himself(
+            Message::from(serde_json::to_string(&participants).unwrap()),participant_id, room_id.clone(), &app_state
+        ).await ; //> sending remaining participants their team name and participant_id
+        tracing::info!("sent all active participants list to the participant") ;
+
 
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
@@ -174,6 +186,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                     // 3 people should exists in the room, in order to start the auction
                     // here we should get dynamically what's the player_id for the specific auction room
+                    // --------------- need to check whether the start button was clicked by the creator of the room --------
+                    if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
+                        send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
+                    }
                     if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
                         send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
                     }else {
@@ -229,38 +245,43 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 }else if text.to_string() == "end" {
                     // ending the auction
-                    // when we click on end we are getting only exit as the message with out any reson
+                    // when we click on end we are getting only exit as the message without any reason
                     // check whether he was the creator of the room
-                    let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
-                    match result {
-                        Ok(result) => {
-                            if !result {
-                                send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
+                    if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
+                        send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
+                    }else {
+                        let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
+                        match result {
+                            Ok(result) => {
+                                if !result {
+                                    send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
+                                }
+                            },
+                            Err(err) => {
+                                tracing::info!("getting error while is room_creator") ;
+                                send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
                             }
-                        },
-                        Err(err) => {
-                            tracing::info!("getting error while is room_creator") ;
-                            send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
                         }
+                        // second, check whether all the participants having least 15 players in their squad
+                        let res = redis_connection.check_end_auction(room_id.clone()).await ;
+                        let message ;
+                        match res {
+                            Ok(res) => {
+                                if res {
+                                    message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
+                                    // when front-end has disconnected automatically it's going to be the end.
+                                }else {
+                                    message = Message::text("Not enough players brought by each team") ;
+                                }
+                            },
+                            Err(err) => {
+                                tracing::info!("Unable to get the room") ;
+                                message = Message::text("Till all participants brought at least 15 player") ;
+                            }
+                        } ;
+                        broadcast_handler(message,room_id.clone(),&app_state).await ;
                     }
-                    // second, check whether all the participants having least 15 players in their squad
-                    let res = redis_connection.check_end_auction(room_id.clone()).await ;
-                    let message ;
-                    match res {
-                        Ok(res) => {
-                            if res {
-                                message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
-                                // when front-end has disconnected automatically it's going to be the end.
-                            }else {
-                                message = Message::text("Not enough players brought by each team") ;
-                            }
-                        },
-                        Err(err) => {
-                            tracing::info!("Unable to get the room") ;
-                            message = Message::text("Till all participants brought at least 15 player") ;
-                        }
-                    } ;
-                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+
                 }else {
                     send_himself(Message::text("Invalid Message"), participant_id, room_id.clone(), &app_state).await ;
                 }
