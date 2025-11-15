@@ -277,7 +277,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 value.get_mut(&room_id).unwrap().remove(index as usize);
                 drop(value) ;
-                broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name })), room_id.clone(), &app_state).await ;
+                broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name }).unwrap()), room_id.clone(), &app_state).await ;
                 return;
             }
             Message::Binary(bytes) => todo!(),
