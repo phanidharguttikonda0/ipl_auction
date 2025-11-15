@@ -200,33 +200,33 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     // --------------- need to check whether the start button was clicked by the creator of the room --------
                     if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
                         send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
-                    }
-                    if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
-                        send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
-                    }else {
-                        let last_player_id = redis_connection.last_player_id(room_id.clone()).await.unwrap() ;
-                        // we are going to return the first player from the auction
-                        let player = redis_connection.get_player(last_player_id).await ;
-                        let message ;
-                        match player {
-                            Ok(player) => {
-                                message = Message::from(serde_json::to_string(&player).unwrap()) ;
-                                // here we are going to add the player as Bid to the redis
-                                let bid = Bid::new(0, player.id, 0.0, player.base_price) ; // no one yet bidded
-                                redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
-                                // changing room-status
-                                app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
-                            } ,
-                            Err(err) => {
-                                tracing::info!("Unable to get the player-id, may be a technical Issue") ;
-                                message = Message::text("Technical Glitch") ;
-                            }
-                        } ;
+                    }else{
+                        if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
+                            send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
+                        }else {
+                            let last_player_id = redis_connection.last_player_id(room_id.clone()).await.unwrap() ;
+                            // we are going to return the first player from the auction
+                            let player = redis_connection.get_player(last_player_id).await ;
+                            let message ;
+                            match player {
+                                Ok(player) => {
+                                    message = Message::from(serde_json::to_string(&player).unwrap()) ;
+                                    // here we are going to add the player as Bid to the redis
+                                    let bid = Bid::new(0, player.id, 0.0, player.base_price) ; // no one yet bidded
+                                    redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
+                                    // changing room-status
+                                    app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
+                                } ,
+                                Err(err) => {
+                                    tracing::info!("Unable to get the player-id, may be a technical Issue") ;
+                                    message = Message::text("Technical Glitch") ;
+                                }
+                            } ;
 
-                        // broadcasting
-                        broadcast_handler(message,room_id.clone(),&app_state).await ;
+                            // broadcasting
+                            broadcast_handler(message,room_id.clone(),&app_state).await ;
+                        }
                     }
-
                 }else if text.to_string() == "bid" {
                     /*
                         If previously the same participant has send the bid, then that shouldn't be considered
