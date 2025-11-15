@@ -82,7 +82,7 @@ async fn routes() -> Router {
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     let app = Router::new()
-        .route("/ws/:room_id/:participant_id", get(ws_handler))  // keep it clean
+        .route("/ws/{room_id}/{participant_id}", get(ws_handler))  // keep it clean
         .merge(
             Router::new()
                 .nest("/rooms", rooms_routes())
