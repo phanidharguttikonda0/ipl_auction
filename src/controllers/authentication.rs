@@ -9,84 +9,109 @@ use crate::models::app_state::AppState;
 use crate::models::authentication_models::{AuthenticationModel};
 use crate::services::other::create_authorization_header;
 
-pub async fn authentication_handler(State(app_state): State<Arc<AppState>>, Form(details): Form<AuthenticationModel>) -> Result<Response, StatusCode> {
-    // when we get the data, it will check whether the data exists or not, if exists then favorite team column
-    // is not null. Then it will send the authorization header, else it will not send it so the front-end needs to
-    // show the choice favorite team page and continue, once he/she sent the favorite team, then this controller
-    // will send the authorization header in the response body
-
-    // as it was staging and testing, we can write a dummy code here; that works for simple purpose
-
-    // first thing to check whether that google sid exists , if not add it and return authorization header
+pub async fn authentication_handler(
+    State(app_state): State<Arc<AppState>>,
+    Form(details): Form<AuthenticationModel>,
+) -> Result<Response, StatusCode> {
     let gmail = details.gmail.trim();
     let username = gmail.split('@').next().unwrap_or("").to_string();
-    tracing::info!("got the username as {}", username) ;
-    let maybe_row = sqlx::query(
-        r#"
-        INSERT INTO users (username, mail_id, google_sid, favorite_team)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (google_sid)
-        DO NOTHING
-        RETURNING id, favorite_team;
-        "#
-    )
-        .bind(&username)
-        .bind(&gmail)
-        .bind(&details.google_sid)
-        .bind(details.favorite_team.unwrap_or_else(|| "".to_string()))
-        .fetch_optional(&app_state.database_connection.connection)
-        .await.unwrap();
 
-    let id ;
-    let favorite_team ;
-    // 2️⃣ If inserted successfully, return new id & team
-    if let Some(row) = maybe_row {
-        tracing::info!("new user , so inserted and got the inserted values") ;
-        id = row.get("id") ;
-        favorite_team = row.get("favorite_team") ;
-    }else {
-        // 3️⃣ If conflict occurred (already exists), fetch existing record
-        tracing::info!("old user, so getting the values") ;
+    tracing::info!("got username {}", username);
+
+    // ────────────────────────────────────────────────────────────────
+    // 1️⃣ CHECK IF USER ALREADY EXISTS
+    // ────────────────────────────────────────────────────────────────
+    let existing_user = sqlx::query(
+        r#"
+        SELECT id, favorite_team, mail_id
+        FROM users
+        WHERE google_sid = $1
+        "#,
+    )
+        .bind(&details.google_sid)
+        .fetch_optional(&app_state.database_connection.connection)
+        .await
+        .unwrap();
+
+    let (id, favorite_team);
+
+    if let Some(row) = existing_user {
+        // ─────────────────────────────────────────────────────────────
+        // 2️⃣ OLD USER → No need for favorite_team
+        // ─────────────────────────────────────────────────────────────
+        tracing::info!("Old user detected");
+
+        id = row.get("id");
+        favorite_team = row.get::<String, _>("favorite_team");
+
+    } else {
+        // ─────────────────────────────────────────────────────────────
+        // 3️⃣ NEW USER → favorite_team is REQUIRED
+        // ─────────────────────────────────────────────────────────────
+        if details.favorite_team.is_none() || details.favorite_team.as_ref().unwrap().is_empty() {
+            tracing::warn!("New user did NOT send favorite_team → REJECTING");
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "favorite_team is required for first-time signup"
+                })),
+            )
+                .into_response());
+        }
+
+        // Only now do we insert (safe)
         let row = sqlx::query(
             r#"
-        SELECT id, favorite_team
-        FROM users
-        WHERE google_sid = $1;
-        "#
+            INSERT INTO users (username, mail_id, google_sid, favorite_team)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, favorite_team;
+            "#,
         )
+            .bind(&username)
+            .bind(&gmail)
             .bind(&details.google_sid)
+            .bind(details.favorite_team.as_ref().unwrap())
             .fetch_one(&app_state.database_connection.connection)
-            .await.unwrap();
-        id = row.get("id") ;
-        favorite_team = row.get("favorite_team") ;
+            .await
+            .unwrap();
+
+        tracing::info!("Inserted NEW USER successfully");
+
+        id = row.get("id");
+        favorite_team = row.get("favorite_team");
     }
 
-    // we are going to get the authorization header
-    match create_authorization_header(id, username, gmail.clone().parse().unwrap(), favorite_team) {
-        Ok(auth_header) =>{
-            tracing::info!("received auth header") ;
-            // build headers
+    // ────────────────────────────────────────────────────────────────
+    // 4️⃣ Create Authorization Header (unchanged)
+    // ────────────────────────────────────────────────────────────────
+    match create_authorization_header(id, username, gmail.parse().unwrap(), favorite_team) {
+        Ok(auth_header) => {
+            tracing::info!("created auth header");
+
             let mut headers = HeaderMap::new();
-            let bearer_value = format!("Bearer {}", auth_header);
             headers.insert(
                 "Authorization",
-                HeaderValue::from_str(&bearer_value).unwrap(),
+                HeaderValue::from_str(&format!("Bearer {}", auth_header)).unwrap(),
             );
 
-            // create response body
-            let body = Json(json!({
-                "message": "Login successful",
-            }));
-
-            Ok((headers, body).into_response())
-        },
+            Ok((
+                headers,
+                Json(json!({
+                    "message": "Login successful"
+                })),
+            )
+                .into_response())
+        }
         Err(err) => {
-            tracing::error!("Failed to create the authorization header") ;
-            Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                "error": "Authorization Failed"
-            }))).into_response())
+            tracing::error!("Failed to create the authorization header: {:?}", err);
 
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Authorization Failed"
+                })),
+            )
+                .into_response())
         }
     }
-
 }
