@@ -293,6 +293,35 @@ impl RedisConnection {
             }
         }
     }
+
+    pub async fn remove_room(&mut self, room_id: String) -> Result<(), redis::RedisError> {
+        let result:RedisResult<i32> = self.connection.del(room_id).await ;
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
+        }
+    }
+
+    pub async fn set_state_to_pause(&mut self, room_id: String, value: bool) -> Result<(), redis::RedisError> {
+        let result: RedisResult<String> = self.connection.get(&room_id).await ;
+
+        match result {
+            Ok(room) => {
+                let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
+                if room.paused == value {
+                    return Ok(())
+                }
+                room.paused = value ;
+                self.connection.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in set_state_to_pause") ;
+                Ok(())
+            },
+            Err(e) => {
+                tracing::error!("got error while updating last player id redis function was called") ;
+                tracing::error!("{}",e) ;
+                Err(e)
+            }
+        }
+    }
 }
 
 
@@ -326,93 +355,104 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
             .to_string();
         tracing::info!("room_id from that expiry key was {}", room_id);
         tracing::info!("we are going to use the key to broadcast") ;
-        let mut res: String = conn.get(&room_id).await? ;
-        let mut res: AuctionRoom = serde_json::from_str(&res).unwrap();
-        let message;
-        let participant_id = res.current_bid.clone().unwrap().participant_id ;
-        let player_id = res.current_bid.clone().unwrap().player_id ;
+        match conn.get::<_, Option<String>>(&room_id).await {
+            Ok(Some(room)) => {
+                let mut res: AuctionRoom = serde_json::from_str(&room).unwrap();
+                let message;
+                let participant_id = res.current_bid.clone().unwrap().participant_id ;
+                let player_id = res.current_bid.clone().unwrap().player_id ;
 
-        tracing::info!("we are going to update the balance of the participant") ;
-        let current_bid= res.current_bid.clone().unwrap() ;
-        let length ;
-        {
-            let rooms = &app_state.rooms;
-            let mut rooms_lock = rooms.read().await; // acquire mutable write lock
-            length = rooms_lock.get(&room_id).unwrap().len() ;
-        }
-        tracing::info!("length of room {}", length) ;
-        if length < 3 {
-            tracing::info!("Auction was going to be stopped as the min members of 3 were not there in the auction") ;
-            // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
-
-            res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
-            // now when people joined the room creator can click on start and from the last player it will continue
-            let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
-            let message = Message::text("Auction Stopped Temporarily, Due to no min players") ;
-            broadcast_handler(message,room_id.clone(), &app_state).await ;
-        }else{
-            let mut remaining_balance: f32 = 0.0 ;
-            if participant_id != 0 {
-                let details = get_participant_details(participant_id, &res.participants).unwrap() ;
-                res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
-                res.participants[details.1 as usize].total_players_brought += 1 ;
-                remaining_balance = res.participants[details.1 as usize].balance ;
-                res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
-            }
-
-            if current_bid.clone().bid_amount != 0.0 {
-                message= Message::from(
-                    serde_json::to_string(&SoldPlayer {
-                        team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
-                        sold_price: current_bid.clone().bid_amount,
-                        remaining_balance
-                    }).unwrap()
-                );
-            }else{
-                message = Message::text("UnSold") ;
-            }
-            let res = serde_json::to_string(&res).unwrap();
-            conn.set::<_,_,()>(&room_id, res).await?;
-            tracing::info!("we are going to broadcast the message to the room participant") ;
-            broadcast_handler(message,room_id.clone(), &app_state ).await ;
-
-            // -------------------- over here we need to add the player to the sold player list with room-id and player-id
-            if current_bid.bid_amount != 0.0 {
-                tracing::info!("player was a sold player") ;
-                app_state.database_connection.add_sold_player(room_id.clone(), current_bid.player_id, current_bid.participant_id, current_bid.bid_amount).await.unwrap();
-                // updating the participant balance in the participant table
-                app_state.database_connection.update_balance(room_id.clone(), current_bid.participant_id, remaining_balance).await.unwrap() ;
-                tracing::info!("successfully updated the balance in the psql") ;
-            }else {
-                tracing::info!("player was an unsold player") ;
-                app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
-            }
-            // we are going to get the next player and broadcasting the next player
-            let next_player = player_id + 1 ;
-            let players: RedisResult<String> = conn.get("players").await;
-            let message;
-            match players {
-                Ok(players) => {
-                    let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
-                    if ((next_player) as usize ) < players.len(){
-                        message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
-                        // we are going to update the current bid
-                        redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price), bid_expiry).await?;
-                        tracing::info!("now updating last player id") ;
-                        redis_connection.update_last_player_id(room_id.clone(), next_player).await?;
-                        tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
-                    }else{
-                        message = Message::text("Auction Completed")
-                    }
-                },
-                Err(err) => {
-                    tracing::warn!("error occurred while getting players") ;
-                    tracing::error!("error was {}", err) ;
-                    message = Message::text("Error Occurred while getting players from redis") ;
+                tracing::info!("we are going to update the balance of the participant") ;
+                let current_bid= res.current_bid.clone().unwrap() ;
+                let length ;
+                {
+                    let rooms = &app_state.rooms;
+                    let mut rooms_lock = rooms.read().await; // acquire mutable write lock
+                    length = rooms_lock.get(&room_id).unwrap().len() ;
                 }
-            };
-            broadcast_handler(message,room_id.clone(), &app_state ).await ;
-        }
+                tracing::info!("length of room {}", length) ;
+                if res.paused {
+                    tracing::info!("Auction was Stopped no more bids, takes place") ;
+                    // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
+
+                    res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
+                    // now when people joined the room creator can click on start and from the last player it will continue
+                    let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
+                    let message = Message::text("Auction was Paused Temporarily") ;
+                    broadcast_handler(message,room_id.clone(), &app_state).await ;
+                }else{
+                    let mut remaining_balance: f32 = 0.0 ;
+                    if participant_id != 0 {
+                        let details = get_participant_details(participant_id, &res.participants).unwrap() ;
+                        res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
+                        res.participants[details.1 as usize].total_players_brought += 1 ;
+                        remaining_balance = res.participants[details.1 as usize].balance ;
+                        res.current_bid = Some(Bid::new(0, 0,0.0,0.0)) ;
+                    }
+
+                    if current_bid.clone().bid_amount != 0.0 {
+                        message= Message::from(
+                            serde_json::to_string(&SoldPlayer {
+                                team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
+                                sold_price: current_bid.clone().bid_amount,
+                                remaining_balance
+                            }).unwrap()
+                        );
+                    }else{
+                        message = Message::text("UnSold") ;
+                    }
+                    let res = serde_json::to_string(&res).unwrap();
+                    conn.set::<_,_,()>(&room_id, res).await?;
+                    tracing::info!("we are going to broadcast the message to the room participant") ;
+                    broadcast_handler(message,room_id.clone(), &app_state ).await ;
+
+                    // -------------------- over here we need to add the player to the sold player list with room-id and player-id
+                    if current_bid.bid_amount != 0.0 {
+                        tracing::info!("player was a sold player") ;
+                        app_state.database_connection.add_sold_player(room_id.clone(), current_bid.player_id, current_bid.participant_id, current_bid.bid_amount).await.unwrap();
+                        // updating the participant balance in the participant table
+                        app_state.database_connection.update_balance(room_id.clone(), current_bid.participant_id, remaining_balance).await.unwrap() ;
+                        tracing::info!("successfully updated the balance in the psql") ;
+                    }else {
+                        tracing::info!("player was an unsold player") ;
+                        app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
+                    }
+                    // we are going to get the next player and broadcasting the next player
+                    let next_player = player_id + 1 ;
+                    let players: RedisResult<String> = conn.get("players").await;
+                    let message;
+                    match players {
+                        Ok(players) => {
+                            let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
+                            if ((next_player) as usize ) < players.len(){
+                                message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
+                                // we are going to update the current bid
+                                redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price), bid_expiry).await?;
+                                tracing::info!("now updating last player id") ;
+                                redis_connection.update_last_player_id(room_id.clone(), next_player).await?;
+                                tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
+                            }else{
+                                message = Message::text("Auction Completed")
+                            }
+                        },
+                        Err(err) => {
+                            tracing::warn!("error occurred while getting players") ;
+                            tracing::error!("error was {}", err) ;
+                            message = Message::text("Error Occurred while getting players from redis") ;
+                        }
+                    };
+                    broadcast_handler(message,room_id.clone(), &app_state ).await ;
+                }
+            },
+            Ok(None) => {
+                tracing::warn!("room does not exist in redis") ;
+                tracing::error!("As some one was already clicked the end button") ;
+            } ,
+            Err(err) => {
+                tracing::error!("error occurred while getting room details from expiry listener") ;
+                tracing::error!("{}",err) ;
+            }
+        };
     }
 
     Ok(())

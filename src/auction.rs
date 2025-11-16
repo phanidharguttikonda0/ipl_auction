@@ -204,6 +204,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
                             send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
                         }else {
+                            redis_connection.set_state_to_pause(room_id.clone(), false).await.unwrap() ;
                             let last_player_id = redis_connection.last_player_id(room_id.clone()).await.unwrap() ;
                             // we are going to return the first player from the auction
                             let player = redis_connection.get_player(last_player_id).await ;
@@ -251,21 +252,22 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }
                         } ;
                     }else{
+                        //  we are going to stop the auction at this point, we will keep another state in redis, called pause, if it is true then we are going to pause the auction
+                        // make the auction paused
+                        redis_connection.set_state_to_pause(room_id.clone(), true).await.unwrap() ;
                         send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,room_id.clone(),&app_state).await ;
                     }
 
-                }else if text.to_string() == "end" {
+                } else if text.to_string() == "end" {
                     // ending the auction
                     // when we click on end we are getting only exit as the message without any reason
                     // check whether he was the creator of the room
-                    if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
-                        send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
-                    }else {
+
                         let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
                         match result {
                             Ok(result) => {
                                 if !result {
-                                    send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
+                                    send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                 }
                             },
                             Err(err) => {
@@ -279,8 +281,31 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         match res {
                             Ok(res) => {
                                 if res {
-                                    message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
                                     // when front-end has disconnected automatically it's going to be the end.
+                                    // we are going to change the state of the auction to completed such that this room get's invalid
+                                    match app_state.database_connection.update_room_status(room_id.clone(), "completed").await {
+                                        Ok(result) => {
+                                            tracing::info!("room status changed to completed") ;
+                                            // here we are going to remove the data from redis
+                                            match redis_connection.remove_room(room_id.clone()).await {
+                                                Ok(_) => {
+                                                    tracing::info!("successfully removed the room from redis") ;
+                                                    message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
+                                                },
+                                                Err(err) => {
+                                                    tracing::info!("got error while removing the room from redis") ;
+                                                    tracing::error!("{}", err) ;
+                                                    message = Message::text("Technical Issue")
+                                                }
+                                            }
+                                        },
+                                        Err(err) => {
+                                            tracing::info!("unable to update the room status to completed") ;
+                                            tracing::error!("{}",err) ;
+                                            message = Message::text("Technical Issue") ;
+                                        }
+                                    }
+
                                 }else {
                                     message = Message::text("Not enough players brought by each team") ;
                                 }
@@ -291,9 +316,25 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }
                         } ;
                         broadcast_handler(message,room_id.clone(),&app_state).await ;
-                    }
 
-                }else {
+
+                }else if text.to_string() == "pause" {
+                    // we are going to pause the auction, such that when clicked create again, going to start from the last player
+                    let message ;
+                    match redis_connection.set_state_to_pause(room_id.clone(), true).await {
+                        Ok(_) => {
+                            tracing::info!("auction was paused") ;
+                            message = Message::text("Auction was Paused") ;
+                        },
+                        Err(err) => {
+                            tracing::error!("error in changing the pause to true") ;
+                            tracing::error!("{}", err) ;
+                            message = Message::text("server problem") ;
+                        }
+                    } ;
+                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+                }
+                else {
                     send_himself(Message::text("Invalid Message"), participant_id, room_id.clone(), &app_state).await ;
                 }
 
