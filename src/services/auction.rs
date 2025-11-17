@@ -4,7 +4,8 @@ use uuid::Uuid;
 use crate::models::app_state::Player;
 use dotenv::dotenv;
 use redis::AsyncCommands;
-use crate::models::player_models::{PlayerDetails, TeamDetails};
+use crate::models::auction_models::SoldPlayer;
+use crate::models::player_models::{PlayerDetails, SoldPlayerOutput, TeamDetails, UnSoldPlayerOutput};
 use crate::models::room_models::{Participant, Rooms};
 
 #[derive(Debug, Clone)]
@@ -461,5 +462,77 @@ impl DatabaseAccess {
         Ok(is_creator.unwrap_or(false))
     }
 
+    pub async fn get_sold_players(&self, room_id: String, page_no: i32, offset: i32) -> Result<Vec<SoldPlayerOutput>, sqlx::Error> {
+        tracing::info!("getting sold players") ;
+        let result = sqlx::query_as::<_, SoldPlayerOutput>(
+            r#"
+        SELECT
+            sp.player_id,
+            p.name AS player_name,
+            pr.team_selected AS team_name,
+            sp.amount AS bought_price,
+            p.role
+        FROM sold_players sp
+        JOIN players p ON sp.player_id = p.id
+        JOIN participants pr ON sp.participant_id = pr.id
+        WHERE sp.room_id = $1
+        ORDER BY sp.id DESC  -- so we are going to get the latest records
+        LIMIT $2 OFFSET $3;
+        "#
+        )
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .bind(offset)      // LIMIT
+            .bind((page_no - 1) * offset) // OFFSET - basically offset will 10 by default
+            .fetch_all(&self.connection)
+            .await;
+
+        match result {
+            Ok(sold_players ) => {
+                tracing::info!("got error while getting sold players") ;
+                Ok(sold_players)
+            },
+            Err(err) => {
+                tracing::error!("{}", err) ;
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn get_unsold_players(&self, room_id: String, page_no: i32, offset: i32) -> Result<Vec<UnSoldPlayerOutput>, sqlx::Error>
+    {
+        tracing::info!("getting unsold players");
+
+        let result = sqlx::query_as::<_, UnSoldPlayerOutput>(
+            r#"
+        SELECT
+            up.player_id,
+            p.name AS player_name,
+            p.role,
+            p.base_price
+        FROM unsold_players up
+        JOIN players p ON up.player_id = p.id
+        WHERE up.room_id = $1
+        ORDER BY up.id DESC
+        LIMIT $2 OFFSET $3;
+        "#
+        )
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .bind(offset)
+            .bind((page_no - 1) * offset)
+            .fetch_all(&self.connection)
+            .await;
+
+        match result {
+            Ok(unsold_players) =>{
+                tracing::info!("got the unsold players list") ;
+                Ok(unsold_players)
+            },
+            Err(err) => {
+                tracing::error!("got an error while getting unsold players") ;
+                tracing::error!("{}", err) ;
+                Err(err)
+            }
+        }
+    }
 
 }

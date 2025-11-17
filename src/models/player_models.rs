@@ -75,3 +75,20 @@ pub struct PlayerDetails {
     pub role: String,
     pub brought_price: f32
 }
+
+#[derive(sqlx::FromRow, Debug, Serialize)]
+pub struct SoldPlayerOutput {
+    pub player_id: i32,
+    pub player_name: String,
+    pub team_name: String,
+    pub bought_price: f32,
+    pub role: String,
+}
+
+#[derive(sqlx::FromRow, Debug, Serialize)]
+pub struct UnSoldPlayerOutput {
+    pub player_id: i32,
+    pub player_name: String,
+    pub role: String,
+    pub base_price: f32,
+}
