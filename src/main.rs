@@ -1,3 +1,4 @@
+use std::fmt::format;
 use std::sync::{Arc};
 use tokio::sync::RwLock;
 use axum::{http, middleware, Router};
@@ -5,6 +6,7 @@ use axum::http::{header, Method};
 use axum::routing::{get, post};
 use dotenv::dotenv;
 use tokio::task;
+use tokio_stream::wrappers::tcp_listener;
 use crate::auction::ws_handler;
 use crate::middlewares::authentication::auth_check;
 use crate::models::app_state::AppState;
@@ -29,7 +31,13 @@ async fn main() {
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
     tracing::info!("Starting server on port {}", port);
     tracing::info!("creating TCP listener") ;
-    let tcp_listener = tokio::net::TcpListener::bind(format!("[::]:{}", port)).await.unwrap();
+    let is_prod = std::env::var("PROD").unwrap_or("false".to_string());
+    let tcp_listener ;
+    if is_prod == "true" {
+        tcp_listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
+    }else{
+        tcp_listener = tokio::net::TcpListener::bind(format!("[::]:{}", port)).await.unwrap();
+    }
     let app = routes().await;
     axum::serve(tcp_listener, app).await.unwrap();
 
