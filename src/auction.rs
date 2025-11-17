@@ -268,54 +268,56 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             Ok(result) => {
                                 if !result {
                                     send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
+                                }else{
+                                    // second, check whether all the participants having least 15 players in their squad
+                                    let res = redis_connection.check_end_auction(room_id.clone()).await ;
+                                    let message ;
+                                    match res {
+                                        Ok(res) => {
+                                            if res {
+                                                // when front-end has disconnected automatically it's going to be the end.
+                                                // we are going to change the state of the auction to completed such that this room get's invalid
+                                                match app_state.database_connection.update_room_status(room_id.clone(), "completed").await {
+                                                    Ok(result) => {
+                                                        tracing::info!("room status changed to completed") ;
+                                                        // here we are going to remove the data from redis
+                                                        match redis_connection.remove_room(room_id.clone()).await {
+                                                            Ok(_) => {
+                                                                tracing::info!("successfully removed the room from redis") ;
+                                                                message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
+                                                            },
+                                                            Err(err) => {
+                                                                tracing::info!("got error while removing the room from redis") ;
+                                                                tracing::error!("{}", err) ;
+                                                                message = Message::text("Technical Issue")
+                                                            }
+                                                        }
+                                                    },
+                                                    Err(err) => {
+                                                        tracing::info!("unable to update the room status to completed") ;
+                                                        tracing::error!("{}",err) ;
+                                                        message = Message::text("Technical Issue") ;
+                                                    }
+                                                }
+
+                                            }else {
+                                                message = Message::text("Not enough players brought by each team") ;
+                                            }
+                                        },
+                                        Err(err) => {
+                                            tracing::info!("Unable to get the room") ;
+                                            message = Message::text("Till all participants brought at least 15 player") ;
+                                        }
+                                    } ;
+                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
                                 }
+
                             },
                             Err(err) => {
                                 tracing::info!("getting error while is room_creator") ;
                                 send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
                             }
                         }
-                        // second, check whether all the participants having least 15 players in their squad
-                        let res = redis_connection.check_end_auction(room_id.clone()).await ;
-                        let message ;
-                        match res {
-                            Ok(res) => {
-                                if res {
-                                    // when front-end has disconnected automatically it's going to be the end.
-                                    // we are going to change the state of the auction to completed such that this room get's invalid
-                                    match app_state.database_connection.update_room_status(room_id.clone(), "completed").await {
-                                        Ok(result) => {
-                                            tracing::info!("room status changed to completed") ;
-                                            // here we are going to remove the data from redis
-                                            match redis_connection.remove_room(room_id.clone()).await {
-                                                Ok(_) => {
-                                                    tracing::info!("successfully removed the room from redis") ;
-                                                    message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
-                                                },
-                                                Err(err) => {
-                                                    tracing::info!("got error while removing the room from redis") ;
-                                                    tracing::error!("{}", err) ;
-                                                    message = Message::text("Technical Issue")
-                                                }
-                                            }
-                                        },
-                                        Err(err) => {
-                                            tracing::info!("unable to update the room status to completed") ;
-                                            tracing::error!("{}",err) ;
-                                            message = Message::text("Technical Issue") ;
-                                        }
-                                    }
-
-                                }else {
-                                    message = Message::text("Not enough players brought by each team") ;
-                                }
-                            },
-                            Err(err) => {
-                                tracing::info!("Unable to get the room") ;
-                                message = Message::text("Till all participants brought at least 15 player") ;
-                            }
-                        } ;
-                        broadcast_handler(message,room_id.clone(),&app_state).await ;
 
 
                 }else if text.to_string() == "pause" {
