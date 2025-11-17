@@ -7,7 +7,7 @@ use axum::response::IntoResponse;
 use serde_json::json;
 use crate::models::app_state::{AppState};
 use crate::models::authentication_models::Claims;
-use crate::models::player_models::{PlayerBrought, PlayerDetails, TeamDetails};
+use crate::models::player_models::{PlayerBrought, PlayerDetails, SoldPlayerOutput, TeamDetails, UnSoldPlayerOutput};
 
 pub async fn get_team_details(State(app_state): State<Arc<AppState>>, Extension(claims):Extension<Claims>,Path(participant_id): Path<i32>) -> Result<(StatusCode, Json<TeamDetails>), (StatusCode, Json<serde_json::Value>)>{
     tracing::info!("getting team details for participant {}", participant_id);
@@ -92,3 +92,45 @@ pub async fn get_team_players(State(app_state): State<Arc<AppState>>, Extension(
     next we are going to get the list of team-names along with participants-ids
 
 */
+
+pub async fn get_sold_players(State(app_state): State<Arc<AppState>>,Path((room_id, page_no, offset)): Path<(String, i32, i32)>) -> Result<(StatusCode, Json<Vec<SoldPlayerOutput>>), (StatusCode, Json<serde_json::Value>)> {
+    tracing::info!("getting sold players for room {}", room_id);
+    
+    match app_state.database_connection.get_sold_players(room_id,page_no,offset).await { 
+        Ok(result) => {
+            Ok((
+                StatusCode::OK,
+                Json(result)
+                ))
+        },
+        Err(err) => {
+            tracing::error!("error occurred while getting sold players") ;
+            tracing::error!("{}", err) ;
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"message" : "server error while fetching sold players"}))
+            ))
+        }
+    }
+}
+
+pub async fn get_unsold_players(State(app_state): State<Arc<AppState>>,Path((room_id, page_no, offset)): Path<(String, i32, i32)>) -> Result<(StatusCode, Json<Vec<UnSoldPlayerOutput>>), (StatusCode, Json<serde_json::Value>)> {
+    tracing::info!("getting unsold players for room {}", room_id);
+    
+    match app_state.database_connection.get_unsold_players(room_id, page_no, offset).await { 
+        Ok(result ) => {
+            Ok((
+                StatusCode::OK,
+                Json(result)
+                ))
+        },
+        Err(err) => {
+            tracing::error!("error occurred while getting unsold players") ;
+            tracing::error!("{}", err) ;
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"message" : "server error while fetching unsold players"}))
+            ))
+        }
+    }
+}
