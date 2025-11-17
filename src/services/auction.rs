@@ -480,7 +480,7 @@ impl DatabaseAccess {
         LIMIT $2 OFFSET $3;
         "#
         )
-            .bind(room_id)
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .bind(offset)      // LIMIT
             .bind((page_no - 1) * offset) // OFFSET - basically offset will 10 by default
             .fetch_all(&self.connection)
@@ -518,7 +518,7 @@ impl DatabaseAccess {
         LIMIT $2 OFFSET $3;
         "#
         )
-            .bind(room_id)
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .bind(offset)
             .bind(offset)
             .fetch_all(&self.connection)
