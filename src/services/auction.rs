@@ -502,11 +502,9 @@ impl DatabaseAccess {
     {
         tracing::info!("getting unsold players");
 
-        let offset = (page_no - 1) * offset;
-
         let result = sqlx::query_as::<_, UnSoldPlayerOutput>(
             r#"
-        SELECT 
+        SELECT
             up.player_id,
             p.name AS player_name,
             p.role,
@@ -520,11 +518,11 @@ impl DatabaseAccess {
         )
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .bind(offset)
-            .bind(offset)
+            .bind((page_no - 1) * offset)
             .fetch_all(&self.connection)
             .await;
 
-        match result { 
+        match result {
             Ok(unsold_players) =>{
                 tracing::info!("got the unsold players list") ;
                 Ok(unsold_players)
