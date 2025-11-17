@@ -322,19 +322,33 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 }else if text.to_string() == "pause" {
                     // we are going to pause the auction, such that when clicked create again, going to start from the last player
-                    let message ;
-                    match redis_connection.set_state_to_pause(room_id.clone(), true).await {
-                        Ok(_) => {
-                            tracing::info!("auction was paused") ;
-                            message = Message::text("Auction was Paused") ;
+                    let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
+                    match result {
+                        Ok(result) => {
+                            if result {
+                                let message ;
+                                match redis_connection.set_state_to_pause(room_id.clone(), true).await {
+                                    Ok(_) => {
+                                        tracing::info!("auction was paused") ;
+                                        message = Message::text("Auction was Paused") ;
+                                    },
+                                    Err(err) => {
+                                        tracing::error!("error in changing the pause to true") ;
+                                        tracing::error!("{}", err) ;
+                                        message = Message::text("server problem") ;
+                                    }
+                                } ;
+                                broadcast_handler(message,room_id.clone(),&app_state).await ;
+                            }else {
+                                send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
+                            }
                         },
                         Err(err) => {
-                            tracing::error!("error in changing the pause to true") ;
+                            tracing::error!("got error while check is the creator") ;
                             tracing::error!("{}", err) ;
-                            message = Message::text("server problem") ;
                         }
-                    } ;
-                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+                    };
+
                 }
                 else {
                     send_himself(Message::text("Invalid Message"), participant_id, room_id.clone(), &app_state).await ;
@@ -343,7 +357,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             },
             Message::Close(_) => {
                 tracing::info!("Client disconnected");
-                // we are removing the disconnected client, such that the unbounded channel will not overload , if queue is filled with multiple disconnected message to client
+                // we are removing the disconnected client, such that the unbounded channel will not overload if queue is filled with multiple disconnected message to client
                 let mut value = app_state.rooms.write().await ;
                 let mut index: u8 = 0 ;
 
