@@ -208,6 +208,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         }else {
                             redis_connection.set_state_to_pause(room_id.clone(), false).await.unwrap() ;
                             let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
+                            tracing::info!("---------------------------------------") ;
                             let last_player_id = match last_player_id {
                                 Ok(last_player_id) => {
                                     tracing::info!("got the last player-id as {}", last_player_id) ;
