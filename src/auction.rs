@@ -376,6 +376,14 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         };
                     }
 
+                }else if text.to_string() == "rtm-accept" {
+                    tracing::info!("rtm was being accepted") ;
+                    // accepting the bid
+                    let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
+                    let bid = room.current_bid.unwrap() ;
+                    let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false) ;
+                    // adding the bid to the redis
+                    let _ = redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
                 }else if text.to_string().contains("rtm") {
 
                     // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
@@ -414,14 +422,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     }
 
 
-                }else if text.to_string() == "rtm-accept" {
-                    tracing::info!("rtm was being accepted") ;
-                    // accepting the bid
-                    let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                    let bid = room.current_bid.unwrap() ;
-                    let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false) ;
-                    // adding the bid to the redis
-                    let _ = redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
                 }else {
                     send_himself(Message::text("Invalid Message"), participant_id, room_id.clone(), &app_state).await ;
                 }
