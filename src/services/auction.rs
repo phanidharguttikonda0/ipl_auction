@@ -535,4 +535,23 @@ impl DatabaseAccess {
         }
     }
 
+
+    pub async fn update_remaining_rtms(&self, participant_id: i32 ) -> Result<(), sqlx::Error> {
+        tracing::info!("updating remaining rtms in psql");
+        let result = sqlx::query("update participants set remaining_rtms = remaining_rtms - 1 where id=$1")
+            .bind(participant_id)
+            .execute(&self.connection).await ;
+        match result {
+            Ok(result) => {
+                tracing::info!("updated remaining rtms count") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("got error while updating remaining rtms") ;
+                tracing::error!("{}", err) ;
+                Err(err)
+            }
+        }
+    }
+
 }

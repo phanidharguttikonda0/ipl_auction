@@ -32,3 +32,35 @@ pub fn create_authorization_header(user_id: i32, username: String, gmail: String
 
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret_key.as_ref()))
 }
+
+
+pub fn get_previous_team_full_name(team_name: &str) -> String {
+    match team_name {
+        "CSK" => "Chennai Super Kings".to_string(),
+        "MI" => "Mumbai Indians".to_string(),
+        "RCB" => "Royal Challengers Bangalore".to_string(),
+        "KKR" => "Kolkata Knight Riders".to_string(),
+        "DC" => "Delhi Capitals".to_string(),
+        "PBKS" => "Punjab Kings".to_string(),
+        "LSG" => "Lucknow Super Gaints".to_string(),
+        "RR" => "Rajasthan Royals".to_string(),
+        "GT" => "Gujarat Titans".to_string(),
+        "SRH" => "Sun Risers Hyderabad".to_string(),
+        "CSK" => "Chennai Super Kings".to_string(),
+        _ => "".to_string()
+    }
+}
+/*
+
+"Mumbai Indians"
+                | "Chennai Super Kings"
+                | "Sun Risers Hyderabad"
+                | "Punjab Kings"
+                | "Rajasthan Royals"
+                | "Royal Challengers Bangalore"
+                | "Kolkata Knight Riders"
+                | "Delhi Capitals"
+                | "Lucknow Super Gaints"
+                | "Gujarat Titans"
+
+*/

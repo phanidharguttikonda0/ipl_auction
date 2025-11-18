@@ -29,15 +29,17 @@ pub struct AuctionParticipant {
     pub team_name: String, // team name
     pub balance: f32, // at start 100cr is the balance
     pub total_players_brought: u8,
+    pub remaining_rtms: i16
 }
 
 impl AuctionParticipant {
-    pub fn new(id: i32, team_name: String) -> Self {
+    pub fn new(id: i32, team_name: String, remaining_rtms: i16) -> Self {
         Self {
             id,
             team_name,
             balance: 100.0,
             total_players_brought: 0,
+            remaining_rtms
         }
     }
 }
@@ -48,15 +50,17 @@ pub struct Bid {
     pub player_id: i32,
     pub bid_amount: f32,
     pub base_price: f32,
+    pub is_rtm: bool,
 }
 
 impl Bid {
-    pub fn new(participant_id: i32, player_id: i32, bid_amount: f32, base_price: f32) -> Self {
+    pub fn new(participant_id: i32, player_id: i32, bid_amount: f32, base_price: f32, is_rtm: bool) -> Self {
         Bid {
             participant_id,
             player_id,
             bid_amount,
             base_price,
+            is_rtm
         }
     }
 }
