@@ -462,6 +462,13 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                     ), room_id.clone(), &app_state).await ;
 
                 }else{
+                    let previous_team_participant_id ;
+                    for participant in res.participants.iter() {
+                        if participant.team_name == previous_player.previous_team {
+                            previous_team_participant_id = participant.id ;
+                            break
+                        }
+                    }
                     if !previous_player.previous_team.contains("-")  && remaining_rtms > 0 {
                         let previous_team = get_previous_team_full_name(&previous_player.previous_team) ;
 
@@ -469,7 +476,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                         // now we are going to send the notification to the previous team to use the RTM, if he not uses it
                         // then this will expiry in 20 seconds.
 
-                        send_message_to_participant(participant_id, String::from("Use RTM"), room_id.clone(), &app_state).await ;
+                        send_message_to_participant(previous_team_participant_id, String::from("Use RTM"), room_id.clone(), &app_state).await ;
 
                         // setting the new timer
                         let timer_key = format!("auction:timer:rtms:{}", room_id); // if this key exists in the redis then no bids takes place
