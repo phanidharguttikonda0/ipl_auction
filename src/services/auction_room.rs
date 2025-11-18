@@ -462,7 +462,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                     ), room_id.clone(), &app_state).await ;
 
                 }else{
-                    let previous_team_participant_id ;
+                    let mut previous_team_participant_id= 0 ;
                     for participant in res.participants.iter() {
                         if participant.team_name == previous_player.previous_team {
                             previous_team_participant_id = participant.id ;
