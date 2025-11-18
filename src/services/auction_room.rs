@@ -472,7 +472,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                             break
                         }
                     }
-                    if !previous_player.previous_team.contains("-")  && remaining_rtms > 0 {
+                    if (!previous_player.previous_team.contains("-"))  && remaining_rtms > 0 {
                         let previous_team = get_previous_team_full_name(&previous_player.previous_team) ;
 
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
