@@ -222,6 +222,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 } ,
                                 Err(err) => {
                                     tracing::info!("Unable to get the player-id, may be a technical Issue") ;
+                                    tracing::error!("{}", err) ;
                                     message = Message::text("Technical Glitch") ;
                                 }
                             } ;
