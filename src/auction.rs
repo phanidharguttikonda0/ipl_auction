@@ -207,7 +207,17 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
                         }else {
                             redis_connection.set_state_to_pause(room_id.clone(), false).await.unwrap() ;
-                            let last_player_id = redis_connection.last_player_id(room_id.clone()).await.unwrap() ;
+                            let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
+                            let last_player_id = match last_player_id {
+                                Ok(last_player_id) => {
+                                    tracing::info!("got the last player-id as {}", last_player_id) ;
+                                    last_player_id
+                                },
+                                Err(err) => {
+                                    tracing::error!("error while getting last player-id was {}", err) ;
+                                    1
+                                }
+                            } ;
                             // we are going to return the first player from the auction
                             let player = redis_connection.get_player(last_player_id).await ;
                             let message ;
