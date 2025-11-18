@@ -19,7 +19,7 @@ pub async fn load_players_to_redis(conn: &DatabaseAccess) {
 pub fn create_authorization_header(user_id: i32, username: String, gmail: String, favorite_team: String) -> Result<String, jsonwebtoken::errors::Error> {
     let secret_key : String = std::env::var("JWT_SECRET").unwrap();
     let expiration = Utc::now()
-        .checked_add_signed(Duration::seconds(60))
+        .checked_add_signed(Duration::days(7))
         .expect("valid timestamp")
         .timestamp() as usize;
 
