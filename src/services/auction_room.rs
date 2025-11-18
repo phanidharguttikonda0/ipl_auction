@@ -415,7 +415,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
 
         let room_id = parts.get(parts.len() - 1).unwrap_or(&"").to_string();
         let is_rtm = parts.get(parts.len() - 2).unwrap_or(&"").to_string();
-
+        let mut sold = false ;
         tracing::info!("room_id from that expiry key was {}", room_id);
         tracing::info!("we are going to use the key to broadcast") ;
         match conn.get::<_, Option<String>>(&room_id).await {
@@ -460,6 +460,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                             remaining_balance
                         }).unwrap()
                     ), room_id.clone(), &app_state).await ;
+
+                    sold = true ;
 
                 }else{
                     tracing::info!("****************************") ;
@@ -543,11 +545,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                                 tracing::info!("player was an unsold player") ;
                                 app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
                             }
+                            sold = true ;
                         }
                     }
                 }
 
-                if !(!previous_player.previous_team.contains("-")  && remaining_rtms > 0) {
+                if sold {
                     // we are going to get the next player and broadcasting the next player
                     let next_player = player_id + 1 ;
                     let players: RedisResult<String> = conn.get("players").await;
