@@ -462,9 +462,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                     ), room_id.clone(), &app_state).await ;
 
                 }else{
+                    tracing::info!("****************************") ;
                     let mut previous_team_participant_id= 0 ;
                     for participant in res.participants.iter() {
+                        tracing::info!("participant.teamname {} and previous_player.previous_team {}", participant.team_name, previous_player.previous_team) ;
                         if participant.team_name == previous_player.previous_team {
+                            tracing::info!("previous team participant {}", participant.id) ;
                             previous_team_participant_id = participant.id ;
                             break
                         }
