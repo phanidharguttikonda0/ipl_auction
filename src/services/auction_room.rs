@@ -569,10 +569,10 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             let players: Vec<Player> = serde_json::from_str(&players).unwrap() ;
                             if ((next_player) as usize ) < players.len(){
                                 message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
-                                // we are going to update the current bid
-                                redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price, false, false), bid_expiry).await?;
                                 tracing::info!("now updating last player id") ;
                                 redis_connection.update_last_player_id(room_id.clone(), next_player).await?;
+                                // we are going to update the current bid
+                                redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price, false, false), bid_expiry).await?;
                                 tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                             }else{
                                 message = Message::text("Auction Completed")
