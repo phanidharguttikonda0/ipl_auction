@@ -19,4 +19,5 @@ pub struct Player {
     pub base_price: f32,
     pub country: String,
     pub role: String,
+    pub previous_team: String,
 }

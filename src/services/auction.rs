@@ -101,13 +101,14 @@ impl DatabaseAccess {
                 ];
 
                 for team in teams_selected {
-                    let i = 0 ;
+                    let mut i = 0 ;
                     while i < teams.len() {
                         let team_name: String = team.get("team_selected") ;
                         if team_name == teams[i] {
                             teams.remove(i) ;
                             break;
                         }
+                        i += 1 ;
                     }
                 }
                 Ok(teams)
@@ -488,7 +489,7 @@ impl DatabaseAccess {
 
         match result {
             Ok(sold_players ) => {
-                tracing::info!("got error while getting sold players") ;
+                tracing::info!("got sold players") ;
                 Ok(sold_players)
             },
             Err(err) => {
@@ -529,6 +530,25 @@ impl DatabaseAccess {
             },
             Err(err) => {
                 tracing::error!("got an error while getting unsold players") ;
+                tracing::error!("{}", err) ;
+                Err(err)
+            }
+        }
+    }
+
+
+    pub async fn update_remaining_rtms(&self, participant_id: i32 ) -> Result<(), sqlx::Error> {
+        tracing::info!("updating remaining rtms in psql");
+        let result = sqlx::query("update participants set remaining_rtms = remaining_rtms - 1 where id=$1")
+            .bind(participant_id)
+            .execute(&self.connection).await ;
+        match result {
+            Ok(result) => {
+                tracing::info!("updated remaining rtms count") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("got error while updating remaining rtms") ;
                 tracing::error!("{}", err) ;
                 Err(err)
             }
