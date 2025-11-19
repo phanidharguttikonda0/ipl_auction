@@ -204,7 +204,7 @@ impl RedisConnection {
                 balance, players_brought).await;
                 tracing::info!("is bid allowed {}", is_allowed) ;
                 if is_allowed {
-                    room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, next_bid, current_bid.base_price, false)) ;
+                    room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, next_bid, current_bid.base_price, false, false)) ;
                     let room = serde_json::to_string(&room).unwrap();
                     tracing::info!("room was serialized ") ;
                     self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
@@ -395,7 +395,7 @@ use serde_json::Error;
 use crate::models::room_models::Participant;
 use crate::services::other::get_previous_team_full_name;
 
-pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>) -> redis::RedisResult<()> {
+pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>) -> redis::RedisResult<()> {
     tracing::info!("🔔 Redis expiry listener started");
     let client = Client::open(redis_url)?;
     let mut pubsub = client.get_async_pubsub().await?;
@@ -416,6 +416,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
         let room_id = parts.get(parts.len() - 1).unwrap_or(&"").to_string();
         let is_rtm = parts.get(parts.len() - 2).unwrap_or(&"").to_string();
         let mut sold = false ;
+        tracing::info!("is rtm ---------------> {}", is_rtm) ;
         tracing::info!("room_id from that expiry key was {}", room_id);
         tracing::info!("we are going to use the key to broadcast") ;
         match conn.get::<_, Option<String>>(&room_id).await {
@@ -427,22 +428,22 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
 
                 // here we are going to check whether the specific player having the previous team or not
                 let previous_player = redis_connection.get_player(player_id).await? ;
-                let remaining_rtms = redis_connection.get_remaining_rtms(room_id.clone(), participant_id).await?;
 
                 if is_rtm == "rtms" {
                     tracing::info!("the expired key was the RTM one") ;
                     // as it is expired, we are going to sell the player to the last bidded person
                     let bid = res.current_bid.clone().unwrap() ;
+                    let details = get_participant_details(participant_id, &res.participants).unwrap() ;
                     if bid.is_rtm {
                         // we are going to update the rtms of the user
                         redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
                         // we are going to update in the sql as well.
                         app_state.database_connection.update_remaining_rtms(participant_id).await.unwrap();
+                        res.participants[details.1 as usize].remaining_rtms -= 1 ;
                     }
                     // we are going to sell the player to the person,
                     tracing::info!("player was a sold player") ;
                     app_state.database_connection.add_sold_player(room_id.clone(), bid.player_id, bid.participant_id, bid.bid_amount).await.unwrap();
-                    let details = get_participant_details(participant_id, &res.participants).unwrap() ;
                     res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
                     res.participants[details.1 as usize].total_players_brought += 1 ;
                     let remaining_balance = res.participants[details.1 as usize].balance ;
@@ -450,9 +451,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                     app_state.database_connection.update_balance(room_id.clone(), bid.participant_id, remaining_balance).await.unwrap() ;
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
-                    res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false)) ;
+                    res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
                     let res = serde_json::to_string(&res).unwrap();
                     conn.set::<_,_,()>(&room_id, res).await?;
+
+                    sold = true ;
+                    
                     broadcast_handler(Message::from(
                         serde_json::to_string(&SoldPlayer {
                             team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
@@ -460,22 +464,24 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                             remaining_balance
                         }).unwrap()
                     ), room_id.clone(), &app_state).await ;
-
-                    sold = true ;
+                    
 
                 }else{
                     tracing::info!("****************************") ;
                     let full_team_name = get_previous_team_full_name(&previous_player.previous_team) ;
+                    let mut remaining_rtms = 0;
                     let mut previous_team_participant_id= 0 ;
                     for participant in res.participants.iter() {
                         tracing::info!("participant.teamname {} and previous_player.previous_team {}", participant.team_name, full_team_name) ;
                         if participant.team_name == full_team_name {
                             tracing::info!("previous team participant {}", participant.id) ;
                             previous_team_participant_id = participant.id ;
+                            remaining_rtms = participant.remaining_rtms ;
                             break
                         }
                     }
-                    if (!previous_player.previous_team.contains("-"))  && remaining_rtms > 0 {
+                    let current_bid= res.current_bid.clone().unwrap() ;
+                    if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && !current_bid.rtm_bid { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
                         let previous_team = get_previous_team_full_name(&previous_player.previous_team) ;
 
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
@@ -491,7 +497,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
 
                     }else {
                         tracing::info!("we are going to update the balance of the participant") ;
-                        let current_bid= res.current_bid.clone().unwrap() ;
+                        
                         let length ;
                         {
                             let rooms = &app_state.rooms;
@@ -503,7 +509,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                             tracing::info!("Auction was Stopped no more bids, takes place") ;
                             // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
 
-                            res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false)) ;
+                            res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
                             // now when people joined the room creator can click on start and from the last player it will continue
                             let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
                             redis_connection.remove_room(format!("auction:timer:{}", room_id.clone())).await? ;
@@ -517,7 +523,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                                 res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
                                 res.participants[details.1 as usize].total_players_brought += 1 ;
                                 remaining_balance = res.participants[details.1 as usize].balance ;
-                                res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false)) ;
+                                res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
                             }
 
                             if current_bid.clone().bid_amount != 0.0 {
@@ -563,7 +569,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                             if ((next_player) as usize ) < players.len(){
                                 message = Message::from(serde_json::to_string(&players[next_player as usize]).unwrap()) ;
                                 // we are going to update the current bid
-                                redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price, false), bid_expiry).await?;
+                                redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, players[next_player as usize].base_price, false, false), bid_expiry).await?;
                                 tracing::info!("now updating last player id") ;
                                 redis_connection.update_last_player_id(room_id.clone(), next_player).await?;
                                 tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;

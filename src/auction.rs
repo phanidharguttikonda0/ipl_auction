@@ -227,7 +227,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 Ok(player) => {
                                     message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                     // here we are going to add the player as Bid to the redis
-                                    let bid = Bid::new(0, player.id, 0.0, player.base_price, false) ; // no one yet bidded
+                                    let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
                                     redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
                                     // changing room-status
                                     app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
@@ -382,12 +382,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     let timer_key = format!("auction:timer:rtms{}", room_id);
                     if redis_connection.check_key_exists(&timer_key).await.unwrap() {
                         tracing::info!("rtm was being accepted") ;
+                        redis_connection.remove_room(timer_key).await.unwrap();
                         // accepting the bid
                         let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
                         let bid = room.current_bid.unwrap() ;
-                        let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false) ;
+                        let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                         // adding the bid to the redis
-                        let _ = redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
+                        redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
                     }else {
                       send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
                     }
@@ -396,7 +397,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     send_message_to_participant(participant_id, String::from("Cancell logic not implemented after 20 seconds it's get cancelled"), room_id.clone(), &app_state).await ;
                 }
                 else if text.to_string().contains("rtm") {
-
+                    tracing::info!("rtm was accepted with the following {}",text.to_string()) ;
                     // we need to check
                     let timer_key = format!("auction:timer{}", room_id); // if this key exists in the redis then no bids takes place
                     if !redis_connection.check_key_exists(&timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
@@ -423,7 +424,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
                                     tracing::info!("both having money, so let's delete the current key") ;
                                     // creating the new Bid
-                                    let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true) ;
+                                    let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
                                     // adding the bid to the redis
                                     let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
                                     send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
@@ -432,7 +433,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // delete the key and add the new bid with expiry 0 seconds
                                     redis_connection.remove_room(format!("auction:timer:rtms{}", room_id)).await.unwrap();
                                     // new bid
-                                    redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true),0).await.unwrap() ;
+                                    redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),0).await.unwrap() ;
                                     // send to the highest bidder the reason
                                     send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
                                 }else {

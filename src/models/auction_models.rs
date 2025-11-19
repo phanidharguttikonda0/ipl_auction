@@ -51,16 +51,18 @@ pub struct Bid {
     pub bid_amount: f32,
     pub base_price: f32,
     pub is_rtm: bool,
+    pub rtm_bid: bool // only in rtm-accept case it will be true
 }
 
 impl Bid {
-    pub fn new(participant_id: i32, player_id: i32, bid_amount: f32, base_price: f32, is_rtm: bool) -> Self {
+    pub fn new(participant_id: i32, player_id: i32, bid_amount: f32, base_price: f32, is_rtm: bool, rtm_bid: bool) -> Self {
         Bid {
             participant_id,
             player_id,
             bid_amount,
             base_price,
-            is_rtm
+            is_rtm,
+            rtm_bid,
         }
     }
 }

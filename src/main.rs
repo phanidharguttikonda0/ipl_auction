@@ -1,5 +1,6 @@
 use std::fmt::format;
 use std::sync::{Arc};
+use std::time::Duration;
 use tokio::sync::RwLock;
 use axum::{http, middleware, Router};
 use axum::http::{header, Method};
@@ -53,8 +54,13 @@ async fn routes() -> Router {
     let redis_url = std::env::var("REDIS_URL").unwrap();
     let state_ = state.clone();
     task::spawn(async move {
-        if let Err(e) = listen_for_expiry_events(&format!("redis://{}:6379/", redis_url), state_).await {
-            tracing::error!("Redis expiry listener failed: {:?}", e);
+        let state = state_;
+        loop {
+            if let Err(e) = listen_for_expiry_events(&format!("redis://{}:6379/", redis_url), &state).await {
+                tracing::error!("Redis expiry listener failed: {:?}", e);
+            }
+            tracing::warn!("🔁 Restarting listener in 2 seconds...");
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
     // Configure CORS
