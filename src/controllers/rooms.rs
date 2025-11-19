@@ -115,6 +115,7 @@ pub async fn get_remaining_teams(State(app_state): State<Arc<AppState>>, Extensi
             // let's get remaining teams
             let mut real_remaining_teams = vec![] ;
             for team in teams {
+                tracing::info!("the team name was {}", team) ;
                 for existed_team in remaining_teams.iter() {
                     if team != existed_team {
                         real_remaining_teams.push(team) ;
