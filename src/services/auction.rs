@@ -489,7 +489,7 @@ impl DatabaseAccess {
 
         match result {
             Ok(sold_players ) => {
-                tracing::info!("got error while getting sold players") ;
+                tracing::info!("got sold players") ;
                 Ok(sold_players)
             },
             Err(err) => {
