@@ -154,7 +154,9 @@ impl RedisConnection {
                 // Deserializing JSON → Vec<Player>
                 let players: Vec<Player> = serde_json::from_str(&json)
                     .map_err(|_| redis::RedisError::from((redis::ErrorKind::TypeError, "Invalid JSON")))?;
-
+                tracing::info!("***************************") ;
+                tracing::info!("total players length in redis {}", players.len()) ;
+                tracing::info!("*******************************") ;
                 // Find the player by ID
                 if let Some(player) = players.into_iter().find(|p| p.id == player_id) {
                     Ok(player)
