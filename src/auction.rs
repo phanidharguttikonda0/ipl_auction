@@ -13,6 +13,7 @@ use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use crate::models::authentication_models::Claims;
 use crate::models::room_models::Participant;
+use crate::services::other::get_previous_team_full_name;
 
 pub async fn ws_handler(ws: WebSocketUpgrade, Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| socket_handler(socket, room_id, participant_id, app_state))
@@ -377,50 +378,70 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     }
 
                 }else if text.to_string() == "rtm-accept" {
-                    tracing::info!("rtm was being accepted") ;
-                    // accepting the bid
-                    let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                    let bid = room.current_bid.unwrap() ;
-                    let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false) ;
-                    // adding the bid to the redis
-                    let _ = redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
+                    // can only be called, if the key was rtms
+                    let timer_key = format!("auction:timer:rtms{}", room_id);
+                    if redis_connection.check_key_exists(&timer_key).await.unwrap() {
+                        tracing::info!("rtm was being accepted") ;
+                        // accepting the bid
+                        let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
+                        let bid = room.current_bid.unwrap() ;
+                        let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false) ;
+                        // adding the bid to the redis
+                        let _ = redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
+                    }else {
+                      send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
+                    }
                 }else if text.to_string().contains("rtm") {
 
-                    // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
-                    let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                    let bid = room.current_bid.unwrap() ;
-                    let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
+                    // we need to check
+                    let timer_key = format!("auction:timer{}", room_id); // if this key exists in the redis then no bids takes place
+                    if !redis_connection.check_key_exists(&timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
 
-                    let new_amount = amount + bid.bid_amount ;
-                    // here we need to check whether the rtm placer having that much enough money and as well the same other guy having that much enough money
-                    let rtm_placer_participant = get_participant_details(participant_id, &room.participants).unwrap() ;
-                    if rtm_placer_participant.0.remaining_rtms > 0 {
-                        let highest_bidder_participant = get_participant_details(bid.participant_id, &room.participants).unwrap() ;
-                        let rtm_placer_participant_bid_allowance = bid_allowance_handler(room_id.clone(),new_amount, rtm_placer_participant.0.balance, rtm_placer_participant.0.total_players_brought).await ;
-                        let highest_bidder_participant_allowance = bid_allowance_handler(room_id.clone(),new_amount, highest_bidder_participant.0.balance, highest_bidder_participant.0.total_players_brought).await ;
-                        if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
-                            tracing::info!("both having money, so let's delete the current key") ;
-                            // creating the new Bid
-                            let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true) ;
-                            // adding the bid to the redis
-                            let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
-                            send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
-                        }else if rtm_placer_participant_bid_allowance {
-                            tracing::info!("rtm bidder has enough money, so bid goes to him") ;
-                            // delete the key and add the new bid with expiry 0 seconds
-                            redis_connection.remove_room(format!("auction:timer:rtms{}", room_id)).await.unwrap();
-                            // new bid
-                            redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true),0).await.unwrap() ;
-                            // send to the highest bidder the reason
-                            send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
+                        // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
+                        let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
+                        let bid = room.current_bid.unwrap() ;
+                        let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
+
+                        // now we are going to check whether the specific participant, has the authority to use the rtm, means the current player
+                        // previous team should be the participant playing team
+                        let rtm_placer_participant = get_participant_details(participant_id, &room.participants).unwrap() ;
+                        let previous_player = redis_connection.get_player(bid.player_id).await.unwrap() ;
+                        let full_team_name = get_previous_team_full_name(&previous_player.previous_team);
+                        let current_participant_team = rtm_placer_participant.0.team_name ;
+
+                        if full_team_name == current_participant_team {
+                            let new_amount = amount + bid.bid_amount ;
+                            // here we need to check whether the rtm placer having that much enough money and as well the same other guy having that much enough money
+                            if rtm_placer_participant.0.remaining_rtms > 0 {
+                                let highest_bidder_participant = get_participant_details(bid.participant_id, &room.participants).unwrap() ;
+                                let rtm_placer_participant_bid_allowance = bid_allowance_handler(room_id.clone(),new_amount, rtm_placer_participant.0.balance, rtm_placer_participant.0.total_players_brought).await ;
+                                let highest_bidder_participant_allowance = bid_allowance_handler(room_id.clone(),new_amount, highest_bidder_participant.0.balance, highest_bidder_participant.0.total_players_brought).await ;
+                                if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
+                                    tracing::info!("both having money, so let's delete the current key") ;
+                                    // creating the new Bid
+                                    let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true) ;
+                                    // adding the bid to the redis
+                                    let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
+                                    send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
+                                }else if rtm_placer_participant_bid_allowance {
+                                    tracing::info!("rtm bidder has enough money, so bid goes to him") ;
+                                    // delete the key and add the new bid with expiry 0 seconds
+                                    redis_connection.remove_room(format!("auction:timer:rtms{}", room_id)).await.unwrap();
+                                    // new bid
+                                    redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true),0).await.unwrap() ;
+                                    // send to the highest bidder the reason
+                                    send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
+                                }else {
+                                    tracing::info!("only the person having the rtm having the enough money") ;
+                                    send_himself(Message::text("Invalid Price with your price to players ratio"), participant_id, room_id.clone(), &app_state).await ;
+                                }
+                            }else{
+                                send_himself(Message::text("All RTMS were used"), participant_id, room_id.clone(), &app_state).await ;
+                            }
                         }else {
-                            tracing::info!("only the person having the rtm having the enough money") ;
-                            send_himself(Message::text("Invalid Price with your price to players ratio"), participant_id, room_id.clone(), &app_state).await ;
+                            send_himself(Message::text("The current player is not in ur team previously"), participant_id, room_id.clone(), &app_state).await ;
                         }
-                    }else{
-                        send_himself(Message::text("All RTMS were used"), participant_id, room_id.clone(), &app_state).await ;
                     }
-
 
                 }else {
                     send_himself(Message::text("Invalid Message"), participant_id, room_id.clone(), &app_state).await ;
@@ -441,7 +462,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 }
 
                 /*
-                    need to broadcast which participant has been disconnected , and when joins we are any way sending the message
+                    need to broadcast which participant has been disconnected, and when joins we are any way sending the message
                 */
 
                 value.get_mut(&room_id).unwrap().remove(index as usize);
