@@ -145,9 +145,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
     tracing::info!("getting all participants") ;
     // we need to send the remaining participants list over here
-    let mut participants = redis_connection.get_participants(room_id.clone()).await.unwrap() ;
+    let mut participants = redis_connection.get_participants(room_id.clone()).await ;
     // before sending let's revamp the current active connections
-
+    let mut participants = match participants {
+        Ok(participants) => participants,
+        Err(err) => {
+            tracing::error!("The error occurred in auction room websockets where sending the list of participants") ;
+            return;
+        }
+    } ;
         // first convert to hashmap
         let mut hashmap = HashMap::new() ;
     {
