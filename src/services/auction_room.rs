@@ -507,9 +507,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         }
                         tracing::info!("length of room {}", length) ;
                         if res.paused {
-                            tracing::info!("Auction was Stopped no more bids, takes place") ;
+                            tracing::info!("Auction was Paused no more bids, takes place") ;
                             // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
-
+                            tracing::info!("current player-id {}", current_bid.player_id) ;
                             res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
                             // now when people joined the room creator can click on start and from the last player it will continue
                             let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
