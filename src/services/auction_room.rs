@@ -506,6 +506,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: Arc<AppState>)
                             res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false)) ;
                             // now when people joined the room creator can click on start and from the last player it will continue
                             let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
+                            redis_connection.remove_room(format!("auction:timer:{}", room_id.clone())).await? ;
+                            tracing::info!("just completed removing the timer when pause was clicked") ;
                             let message = Message::text("Auction was Paused Temporarily") ;
                             broadcast_handler(message,room_id.clone(), &app_state).await ;
                         }else{
