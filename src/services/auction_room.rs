@@ -477,11 +477,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             tracing::info!("previous team participant {}", participant.id) ;
                             previous_team_participant_id = participant.id ;
                             remaining_rtms = participant.remaining_rtms ;
+                            tracing::info!("remaining_rtms {}", remaining_rtms) ;
                             break
                         }
                     }
                     let current_bid= res.current_bid.clone().unwrap() ;
-                    if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && !current_bid.rtm_bid && current_bid.participant_id > 0{ // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
+                    if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid) && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
                         let previous_team = get_previous_team_full_name(&previous_player.previous_team) ;
 
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
