@@ -391,7 +391,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     }else {
                       send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
                     }
-                }else if text.to_string().contains("rtm") {
+                }else if text.to_string().contains("rtm-cancel") {
+                    tracing::info!("cancelling the offer by the highest bidder") ;
+                    send_message_to_participant(participant_id, String::from("Cancell logic not implemented after 20 seconds it's get cancelled"), room_id.clone(), &app_state).await ;
+                }
+                else if text.to_string().contains("rtm") {
 
                     // we need to check
                     let timer_key = format!("auction:timer{}", room_id); // if this key exists in the redis then no bids takes place
@@ -527,3 +531,15 @@ pub async fn send_message_to_participant(participant_id: i32, message: String, r
         }
     }
 }
+
+/*
+
+now implement new logic in the AuctionRoom , if the message sent by the back-end was "Use RTM",
+then ask the user you want to use RTM, then if he says yes , then give him an input box and ask
+him to how much do you want to add to the current bid amount , what ever amount he enters, send that
+ amount via web socket as message , "rtm-amount" eg: "rtm-10.00" , and then when ever the user get's
+  the following message "rtm-amount-{}" example : "rtm-amount-25.00" , then ask him whether you want
+  to accept 25.00 cr , if they click on accept then send ws message as rtm-accept, else rtm-cancel.
+  this is the new logic need to be implemented now.
+
+*/
