@@ -6,7 +6,6 @@ pub struct AuctionRoom {
     pub current_bid: Option<Bid>,
     pub participants: Vec<AuctionParticipant>,
     pub last_player_id: i32,
-    pub paused: bool,
 } //  this is where we are going to store in redis with key as room_id and value as auction_room
 
 impl AuctionRoom {
@@ -15,7 +14,6 @@ impl AuctionRoom {
             current_bid: None,
             participants: Vec::new(),
             last_player_id,
-            paused: true,
         }
     }
     pub fn add_participant(&mut self, participant: AuctionParticipant) {

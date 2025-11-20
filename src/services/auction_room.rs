@@ -301,33 +301,18 @@ impl RedisConnection {
         }
     }
 
-    pub async fn remove_room(&mut self, room_id: String) -> Result<(), redis::RedisError> {
-        let result:RedisResult<i32> = self.connection.del(room_id).await ;
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e)
-        }
-    }
+    pub async fn atomic_delete(&mut self, key: &str) -> redis::RedisResult<i32> {
+        let script = r#"
+        local existed = redis.call('DEL', KEYS[1])
+        return existed
+    "#;
 
-    pub async fn set_state_to_pause(&mut self, room_id: String, value: bool) -> Result<(), redis::RedisError> {
-        let result: RedisResult<String> = self.connection.get(&room_id).await ;
+        let result: i32 = redis::Script::new(script)
+            .key(key)
+            .invoke_async(&mut self.connection)
+            .await?;
 
-        match result {
-            Ok(room) => {
-                let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
-                if room.paused == value {
-                    return Ok(())
-                }
-                room.paused = value ;
-                self.connection.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in set_state_to_pause") ;
-                Ok(())
-            },
-            Err(e) => {
-                tracing::error!("got error while updating last player id redis function was called") ;
-                tracing::error!("{}",e) ;
-                Err(e)
-            }
-        }
+        Ok(result)
     }
 
     pub async fn get_remaining_rtms(&mut self, room_id: String, participant_id: i32) -> Result<i16, redis::RedisError> {
@@ -497,21 +482,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         let timer_key = format!("auction:timer:rtms:{}", room_id); // if this key exists in the redis then no bids takes place
                         redis_connection.connection.set_ex::<_, _, ()>(&timer_key, "rtm", bid_expiry as u64).await.expect("unable to set the updated value in new_bid");
                         tracing::info!("we have successfully sent the message to the previous team, regarding RTM") ;
-
+                        continue
                     }else {
-                        if res.paused {
-                            tracing::info!("Auction was Paused no more bids, takes place") ;
-                            // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
-                            tracing::info!("current player-id {}", current_bid.player_id) ;
-                            res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
-                            // now when people joined the room creator can click on start, and from the last player it will continue
-                            let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
-                            // redis_connection.remove_room(format!("auction:timer:{}", room_id.clone())).await? ; not needed , only when this was executed then only this res.paused will be executed
-                            // tracing::info!("just completed removing the timer when pause was clicked") ;
-                            let message = Message::text("Auction was Paused Temporarily") ;
-                            broadcast_handler(message,room_id.clone(), &app_state).await ;
-                            continue;
-                        }else{
+
                             tracing::info!("we are going to update the balance of the participant") ;
 
                             let length ;
@@ -558,8 +531,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                                 app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
                             }
                             sold = true ;
-                        }
                     }
+
                 }
 
                 if sold {
