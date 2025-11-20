@@ -17,6 +17,8 @@ use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
 use tower_http::cors::{CorsLayer, Any};
 use tower::ServiceBuilder;
+use crate::routes::admin_routes::admin_routes;
+
 mod models;
 mod auction;
 mod services;
@@ -101,6 +103,7 @@ async fn routes() -> Router {
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
+        .route("/admin", admin_routes())
         .with_state(state);
 
     app
