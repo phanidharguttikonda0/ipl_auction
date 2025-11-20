@@ -510,6 +510,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             // tracing::info!("just completed removing the timer when pause was clicked") ;
                             let message = Message::text("Auction was Paused Temporarily") ;
                             broadcast_handler(message,room_id.clone(), &app_state).await ;
+                            continue;
                         }else{
                             tracing::info!("we are going to update the balance of the participant") ;
 
