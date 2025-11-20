@@ -556,33 +556,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
 
                 let message ;
                 if sold && !pause_status {
-                    // we are going to get the next player and broadcasting the next player
-                    let next_player = player_id + 1 ;
-                    let player: RedisResult<Player> = redis_connection.get_player(next_player).await;
-                    match player {
-                        Ok(player) => {
-                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
-                            tracing::info!("now updating last player id") ;
-                            redis_connection.update_last_player_id(room_id.clone(), next_player).await?;
-                            // we are going to update the current bid
-                            redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await?;
-                            tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
-                        },
-                        Err(err) => {
-                            if err.kind() == redis::ErrorKind::TypeError
-                                && err.to_string().contains("Player not found")
-                            {
-                                message = Message::text("Auction Completed") ;
-                                tracing::warn!("Player with ID {} not found in Redis", next_player);
-                                // Handle "not found" case separately
-                            } else {
-                                tracing::error!("Redis error occurred: {:?}", err);
-                                tracing::warn!("error occurred while getting players") ;
-                                tracing::error!("error was {}", err) ;
-                                message = Message::text("Error Occurred while getting players from redis") ;
-                            }
-                        }
-                    };
+                    message = get_next_player(room_id.clone(), player_id, bid_expiry).await ;
                 }else {
                     message = Message::text("Auction was Paused");
                 }
@@ -612,4 +586,38 @@ pub fn get_participant_details(participant_id: i32, participants: &Vec<AuctionPa
         index += 1 ;
     }
     None
+}
+
+
+pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8) -> Message {
+    // we are going to get the next player and broadcasting the next player
+    let next_player = player_id + 1 ;
+    let mut redis_connection = RedisConnection::new().await ;
+    let player: RedisResult<Player> = redis_connection.get_player(next_player).await;
+    let message ;
+    match player {
+        Ok(player) => {
+            message = Message::from(serde_json::to_string(&player).unwrap()) ;
+            tracing::info!("now updating last player id") ;
+            redis_connection.update_last_player_id(room_id.clone(), next_player).await.expect("unable to update last player id");
+            // we are going to update the current bid
+            redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await.expect("unable to update current bid");
+            tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
+        },
+        Err(err) => {
+            if err.kind() == redis::ErrorKind::TypeError
+                && err.to_string().contains("Player not found")
+            {
+                message = Message::text("Auction Completed") ;
+                tracing::warn!("Player with ID {} not found in Redis", next_player);
+                // Handle "not found" case separately
+            } else {
+                tracing::error!("Redis error occurred: {:?}", err);
+                tracing::warn!("error occurred while getting players") ;
+                tracing::error!("error was {}", err) ;
+                message = Message::text("Error Occurred while getting players from redis") ;
+            }
+        }
+    };
+    message
 }
