@@ -555,8 +555,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                 }
 
                 let message ;
-                if sold && !pause_status {
-                    message = get_next_player(room_id.clone(), player_id, bid_expiry).await ;
+                if sold  {
+                    message = get_next_player(room_id.clone(), player_id, bid_expiry, pause_status).await ;
                 }else {
                     message = Message::text("Auction was Paused");
                 }
@@ -589,20 +589,25 @@ pub fn get_participant_details(participant_id: i32, participants: &Vec<AuctionPa
 }
 
 
-pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8) -> Message {
+pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pause_status: bool) -> Message {
     // we are going to get the next player and broadcasting the next player
     let next_player = player_id + 1 ;
     let mut redis_connection = RedisConnection::new().await ;
     let player: RedisResult<Player> = redis_connection.get_player(next_player).await;
-    let message ;
+    let mut message ;
     match player {
         Ok(player) => {
-            message = Message::from(serde_json::to_string(&player).unwrap()) ;
+
             tracing::info!("now updating last player id") ;
             redis_connection.update_last_player_id(room_id.clone(), next_player).await.expect("unable to update last player id");
             // we are going to update the current bid
-            redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await.expect("unable to update current bid");
-            tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
+            message = Message::text("Auction was Paused") ;
+            tracing::info!("auction was paused and updated last player in redis") ;
+           if !pause_status {
+               redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await.expect("unable to update current bid");
+               tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
+               message = Message::from(serde_json::to_string(&player).unwrap()) ;
+           }
         },
         Err(err) => {
             if err.kind() == redis::ErrorKind::TypeError
