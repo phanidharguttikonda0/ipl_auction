@@ -103,7 +103,7 @@ async fn routes() -> Router {
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
-        .route("/admin", admin_routes())
+        .nest("/admin", admin_routes())
         .with_state(state);
 
     app
