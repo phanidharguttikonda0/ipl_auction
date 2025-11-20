@@ -205,16 +205,23 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 // if a bid message was sent, then we are going to check for allowance
                 if text.to_string() == "start" {
-
-                    // 3 people should exists in the room, in order to start the auction
-                    // here we should get dynamically what's the player_id for the specific auction room
-                    // --------------- need to check whether the start button was clicked by the creator of the room --------
                     if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
                         send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
                     }else{
                         if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
                             send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
                         }else {
+                            match redis_connection.set_pause_status(&room_id, false).await {
+                                Ok(_) => {
+                                    tracing::info!("successfully set the status to pause") ;
+                                    send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
+                                },
+                                Err(err) => {
+                                    tracing::error!("error occured while setting the pause status") ;
+                                    tracing::error!("err was {}", err) ;
+                                    send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
+                                }
+                            } ;
                             let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
                             tracing::info!("---------------------------------------") ;
                             let last_player_id = match last_player_id {
@@ -350,20 +357,23 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                 }else if text.to_string() == "pause" {
 
-
-                    if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() {
-                        tracing::info!("As the current rtm was going pause will be disabled") ;
-                        send_himself(Message::text("As RTM going on pause won't possible"), participant_id, room_id.clone(), &app_state).await ;
-                    }else {
                         // we are going to pause the auction, such that when clicked create again, going to start from the last player
                         let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
                         match result {
                             Ok(result) => {
                                 if result {
-                                    let message = Message::text("Auction was Paused");
-                                    tracing::info!("removing the timer") ;
-                                    redis_connection.atomic_delete(&timer_key).await.unwrap() ;
-                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+                                    // we are going to pause auction after the current bid
+                                    match redis_connection.set_pause_status(&room_id, true).await {
+                                        Ok(_) => {
+                                            tracing::info!("sucessfully set the status to pause") ;
+                                            send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
+                                        },
+                                        Err(err) => {
+                                            tracing::error!("error occured while setting the pause status") ;
+                                            tracing::error!("err was {}", err) ;
+                                            send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
+                                        }
+                                    } ;
                                 }else {
                                     send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                 }
@@ -373,7 +383,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 tracing::error!("{}", err) ;
                             }
                         };
-                    }
 
                 }else if text.to_string() == "rtm-accept" {
                     // can only be called, if the key was rtms
