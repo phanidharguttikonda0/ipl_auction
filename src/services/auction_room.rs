@@ -154,7 +154,9 @@ impl RedisConnection {
                 // Deserializing JSON → Vec<Player>
                 let players: Vec<Player> = serde_json::from_str(&json)
                     .map_err(|_| redis::RedisError::from((redis::ErrorKind::TypeError, "Invalid JSON")))?;
-
+                tracing::info!("***************************") ;
+                tracing::info!("total players length in redis {}", players.len()) ;
+                tracing::info!("*******************************") ;
                 // Find the player by ID
                 if let Some(player) = players.into_iter().find(|p| p.id == player_id) {
                     Ok(player)
@@ -497,27 +499,27 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         tracing::info!("we have successfully sent the message to the previous team, regarding RTM") ;
 
                     }else {
-                        tracing::info!("we are going to update the balance of the participant") ;
-                        
-                        let length ;
-                        {
-                            let rooms = &app_state.rooms;
-                            let mut rooms_lock = rooms.read().await; // acquire mutable write lock
-                            length = rooms_lock.get(&room_id).unwrap().len() ;
-                        }
-                        tracing::info!("length of room {}", length) ;
                         if res.paused {
                             tracing::info!("Auction was Paused no more bids, takes place") ;
                             // we are going to make the last bid invalid, and last player_id will be same, and bid will be all zeros
                             tracing::info!("current player-id {}", current_bid.player_id) ;
                             res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
-                            // now when people joined the room creator can click on start and from the last player it will continue
+                            // now when people joined the room creator can click on start, and from the last player it will continue
                             let _: () =redis_connection.connection.set(&room_id, serde_json::to_string(&res).unwrap()).await?;
-                            redis_connection.remove_room(format!("auction:timer:{}", room_id.clone())).await? ;
-                            tracing::info!("just completed removing the timer when pause was clicked") ;
+                            // redis_connection.remove_room(format!("auction:timer:{}", room_id.clone())).await? ; not needed , only when this was executed then only this res.paused will be executed
+                            // tracing::info!("just completed removing the timer when pause was clicked") ;
                             let message = Message::text("Auction was Paused Temporarily") ;
                             broadcast_handler(message,room_id.clone(), &app_state).await ;
                         }else{
+                            tracing::info!("we are going to update the balance of the participant") ;
+
+                            let length ;
+                            {
+                                let rooms = &app_state.rooms;
+                                let mut rooms_lock = rooms.read().await; // acquire mutable write lock
+                                length = rooms_lock.get(&room_id).unwrap().len() ;
+                            }
+                            tracing::info!("length of room {}", length) ;
                             let mut remaining_balance: f32 = 0.0 ;
                             if participant_id != 0 {
                                 let details = get_participant_details(participant_id, &res.participants).unwrap() ;
