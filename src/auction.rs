@@ -394,7 +394,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         let bid = room.current_bid.unwrap() ;
                         let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                         // adding the bid to the redis
-                        redis_connection.update_current_bid(room_id.clone(), bid, 0).await.unwrap() ;
+                        redis_connection.update_current_bid(room_id.clone(), bid, 1).await.unwrap() ;
                     }else {
                       send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
                     }
@@ -403,7 +403,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
                     // now we are going to send the same bid with expiry 0
                     let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                    redis_connection.update_current_bid(room_id.clone(), room.current_bid.unwrap(), 0).await.unwrap() ;
+                    redis_connection.update_current_bid(room_id.clone(), room.current_bid.unwrap(), 1).await.unwrap() ;
                     send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
                 }
                 else if text.to_string().contains("rtm") {
@@ -443,7 +443,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // delete the key and add the new bid with expiry 0 seconds
                                     redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
                                     // new bid
-                                    redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),0).await.unwrap() ;
+                                    redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1).await.unwrap() ;
                                     // send to the highest bidder the reason
                                     send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
                                 }else {
