@@ -360,6 +360,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             Ok(result) => {
                                 if result {
                                     let message ;
+                                    tracing::info!("removing the timer key as auction was paused") ;
+                                    redis_connection.remove_room(format!("auction:timer:{}", room_id)).await.unwrap() ;
+                                    tracing::info!("now going to pause the auction") ;
+                                    tracing::info!("instead of setting another state state to pause, we can remove the room, but for now keep it as it is") ;
                                     match redis_connection.set_state_to_pause(room_id.clone(), true).await {
                                         Ok(_) => {
                                             tracing::info!("auction was paused") ;
