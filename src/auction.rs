@@ -400,7 +400,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     }
                 }else if text.to_string().contains("rtm-cancel") {
                     tracing::info!("cancelling the offer by the highest bidder") ;
-                    redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
+                    redis_connection.atomic_delete(&timer_key).await.unwrap() ;
                     // now we are going to send the same bid with expiry 0
                     let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
                     redis_connection.update_current_bid(room_id.clone(), room.current_bid.unwrap(), 1).await.unwrap() ;
