@@ -594,7 +594,7 @@ pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pa
     let next_player = player_id + 1 ;
     let mut redis_connection = RedisConnection::new().await ;
     let player: RedisResult<Player> = redis_connection.get_player(next_player).await;
-    let message ;
+    let mut message ;
     match player {
         Ok(player) => {
 
