@@ -13,6 +13,7 @@ use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use crate::models::authentication_models::Claims;
 use crate::models::room_models::Participant;
+use crate::models::webRTC_models::SignalingMessage;
 use crate::services::other::get_previous_team_full_name;
 
 pub async fn ws_handler(ws: WebSocketUpgrade, Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -459,7 +460,47 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     }
 
                 }else {
-                    send_himself(Message::text("Invalid Message"), participant_id, room_id.clone(), &app_state).await ;
+                    let message ;
+                    let to_participant ;
+
+                    let parsed: SignalingMessage = match serde_json::from_str(&text) {
+                        Ok(msg) => msg,
+                        Err(err) => {
+                            eprintln!("Failed to parse signaling message: {}", err);
+                            send_himself(Message::text("Unable to parse what you have sent"), participant_id, room_id.clone(), &app_state).await ;
+                            continue
+                        }
+                    };
+
+                    match parsed {
+
+                        SignalingMessage::Offer { from, to, payload } => {
+                            tracing::info!("got the offer from {} and to {}", from, to) ;
+                            message = Message::from(serde_json::to_string(&SignalingMessage::Offer {from, to, payload}).unwrap()) ;
+                            to_participant = to ;
+                        },
+                        SignalingMessage::Answer { from, to, payload } => {
+                            // forward to participant `to`
+                            tracing::info!("got the answer from {} and to {}", from, to) ;
+                            message = Message::from(serde_json::to_string(&SignalingMessage::Answer {from, to, payload}).unwrap()) ;
+                            to_participant = to ;
+                        }
+
+                        SignalingMessage::IceCandidate { from, to, payload } => {
+                            // forward to participant `to`
+                            tracing::info!("got the ice-candidate from {} and to {}", from, to) ;
+                            message = Message::from(serde_json::to_string(&SignalingMessage::IceCandidate {from, to, payload}).unwrap()) ;
+                            to_participant = to ;
+                        }
+
+                        _ => {
+                            message = Message::text("Invalid Message") ;
+                            to_participant = participant_id ;
+                        }
+                    };
+
+                    send_himself(message, to_participant, room_id.clone(), &app_state).await ;
+
                 }
 
             },
