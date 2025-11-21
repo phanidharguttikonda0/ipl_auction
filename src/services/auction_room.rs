@@ -488,9 +488,14 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         }
                     }
                     let current_bid= res.current_bid.clone().unwrap() ;
+                    tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
+                    tracing::info!("previous team {}", previous_player.previous_team) ;
+                    tracing::info!("remaining rtms {}",remaining_rtms) ;
+                    tracing::info!("previous team {}", full_team_name) ;
+                    tracing::info!("is rtm bid {}, it should be false",current_bid.rtm_bid) ;
+                    tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
                     if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid) && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
-                        let previous_team = get_previous_team_full_name(&previous_player.previous_team) ;
-
+                        tracing::info!("going to send the Use RTM") ;
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
                         // now we are going to send the notification to the previous team to use the RTM, if he not uses it
                         // then this will expiry in 20 seconds.
