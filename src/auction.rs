@@ -462,13 +462,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 }else {
                     let message ;
                     let to_participant ;
-
+                    if !(text.to_string().starts_with('{') && text.to_string().ends_with('}')) {
+                        tracing::warn!("Ignoring non-JSON message: {}", text);
+                        continue;
+                    }
                     let parsed: SignalingMessage = match serde_json::from_str(&text) {
                         Ok(msg) => msg,
                         Err(err) => {
                             eprintln!("Failed to parse signaling message: {}", err);
                             send_himself(Message::text("Unable to parse what you have sent"), participant_id, room_id.clone(), &app_state).await ;
-                            continue
+                            continue;
                         }
                     };
 
