@@ -462,6 +462,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 }else {
                     let message ;
                     let to_participant ;
+                    tracing::info!("******************* Message for WeB RTC was ***************************") ;
+                    tracing::info!("here is the front-end passed message {}", text.to_string()) ;
+                    tracing::info!("****************************** *****************************************") ;
                     if !(text.to_string().starts_with('{') && text.to_string().ends_with('}')) {
                         tracing::warn!("Ignoring non-JSON message: {}", text);
                         continue;
