@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use axum::body::Bytes;
 use axum::Extension;
 use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::extract::ws::{WebSocket, Message};
@@ -205,7 +206,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 tracing::info!("Received text message: {}", text);
 
                 // if a bid message was sent, then we are going to check for allowance
-                if text.to_string() == "start" {
+                if text.to_string() == "ping" {
+                    tracing::info!("a ping message in room {}", room_id) ;
+                    send_himself(Message::Pong(Bytes::from_static(b"pong")), participant_id,room_id.clone(),&app_state).await ;
+                    continue;
+                }else if text.to_string() == "start" {
                     if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
                         send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
                     }else{
@@ -533,7 +538,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 return;
             }
             Message::Binary(bytes) => todo!(),
-            Message::Ping(bytes) => todo!(),
+            Message::Ping(bytes) => {
+                // Browser will NEVER reach here.
+                // Only servers / Node clients can trigger this.
+            },
             Message::Pong(bytes) => todo!(),
         }
     }
