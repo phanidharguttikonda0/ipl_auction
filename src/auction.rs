@@ -210,6 +210,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                     tracing::info!("a ping message in room {}", room_id) ;
                     send_himself(Message::Pong(Bytes::from_static(b"pong")), participant_id,room_id.clone(),&app_state).await ;
                     continue;
+                }else if text.to_string() == "mute" || text.to_string() == "unmute" {
+                    let value = text.to_string() ;
+                    tracing::info!("{} message was received", value) ;
+                    let x = value + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
+                    broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
                 }else if text.to_string() == "start" {
                     if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
                         send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
