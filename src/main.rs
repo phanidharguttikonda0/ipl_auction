@@ -98,6 +98,10 @@ async fn routes() -> Router {
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     let app = Router::new()
+        .route("/health", get(|| {
+            tracing::info!("Health check passed") ;
+            async { Ok::<_, std::convert::Infallible>("Health check passed") }
+        }))
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
