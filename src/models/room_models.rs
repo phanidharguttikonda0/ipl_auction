@@ -7,6 +7,13 @@ pub struct Participant {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ParticipantResponse {
+    pub participant_id: i32,
+    pub team_name: String,
+    pub user_id: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ParticipantsWithTeam {
     pub participant: Participant,
     pub remaining_participants: Vec<Participant>,
