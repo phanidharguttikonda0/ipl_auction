@@ -6,7 +6,7 @@ use dotenv::dotenv;
 use redis::AsyncCommands;
 use crate::models::auction_models::SoldPlayer;
 use crate::models::player_models::{PlayerDetails, SoldPlayerOutput, TeamDetails, UnSoldPlayerOutput};
-use crate::models::room_models::{Participant, Rooms};
+use crate::models::room_models::{Participant, ParticipantResponse, Rooms};
 
 #[derive(Debug, Clone)]
 pub struct DatabaseAccess {
@@ -407,8 +407,8 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn get_participants_in_room(&self, room_id: String) -> Result<Vec<Participant>, sqlx::Error> {
-        let participants = sqlx::query("select id,team_selected from participants where room_id=$1")
+    pub async fn get_participants_in_room(&self, room_id: String) -> Result<Vec<ParticipantResponse>, sqlx::Error> {
+        let participants = sqlx::query("select id,team_selected,user_id from participants where room_id=$1")
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .fetch_all(&self.connection).await ;
 
@@ -420,8 +420,9 @@ impl DatabaseAccess {
                 for participant in participants.iter() {
                     let participant_id: i32 = participant.get("id") ;
                     let team_selected = participant.get("team_selected") ;
-                    participants_.push(Participant{
-                        participant_id, team_name: team_selected
+                    let user_id = participant.get("user_id") ;
+                    participants_.push(ParticipantResponse{
+                        participant_id, team_name: team_selected, user_id
                     }) ;
                 }
                 Ok(participants_)
