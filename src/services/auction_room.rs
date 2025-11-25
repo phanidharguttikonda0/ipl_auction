@@ -506,7 +506,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         let rtm_timer_key = format!("auction:timer:rtms:{}", room_id); // if this key exists in the redis then no bids takes place
                         redis_connection.connection.set_ex::<_, _, ()>(&rtm_timer_key, "rtm", bid_expiry as u64).await.expect("unable to set the updated value in new_bid");
                         tracing::info!("we have successfully sent the message to the previous team, regarding RTM") ;
-                        continue
+                        continue;
                     }else {
 
                             tracing::info!("we are going to update the balance of the participant") ;

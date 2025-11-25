@@ -425,7 +425,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             tracing::info!("rtm was accepted with the following {}",text.to_string()) ;
                             // we need to check
                             // if this key exists in the redis then no bids takes place
-                            if !redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
+                            if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
                                 redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
                                 // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
                                 let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
@@ -447,7 +447,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         let rtm_placer_participant_bid_allowance = bid_allowance_handler(room_id.clone(),new_amount, rtm_placer_participant.0.balance, rtm_placer_participant.0.total_players_brought).await ;
                                         let highest_bidder_participant_allowance = bid_allowance_handler(room_id.clone(),new_amount, highest_bidder_participant.0.balance, highest_bidder_participant.0.total_players_brought).await ;
                                         if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
-                                            tracing::info!("both having money, so let's delete the current key") ;
+                                            tracing::info!("both having money") ;
                                             // creating the new Bid
                                             let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
                                             // adding the bid to the redis
@@ -475,6 +475,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 }
                                 bid.rtm_bid = true ; // it will be rtm_bid , but for remaining rtms will be same, only thing is in subscriber making sure no infinite loop takes place, where we are going to inifinetly if there previous
                                 let _ = redis_connection.update_current_bid(room_id.clone(), bid, 1).await.unwrap() ;
+                            }else {
+                                tracing::info!("Now no RTM bids were taking place") ;
+                                send_himself(Message::text("No RTM Bids are taking place"), participant_id, room_id.clone(), &app_state).await ;
                             }
 
                         }else {
