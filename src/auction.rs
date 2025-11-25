@@ -199,184 +199,34 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     let timer_key = format!("auction:timer:{}", room_id); // if this key exists in the redis then no bids takes place
     let rtm_timer_key = format!("auction:timer:rtms:{}", room_id) ;
     // let's read continuous messages from the client
-    while let Some(Ok(message)) = receiver.next().await {
-        tracing::info!("Received message: {:?}", message);
+    while let Some(message) = receiver.next().await {
         match message {
-            Message::Text(text) => {
-                tracing::info!("Received text message: {}", text);
+            Ok(message) => {
+                tracing::info!("Received message: {:?}", message);
+                match message {
+                    Message::Text(text) => {
+                        tracing::info!("Received text message: {}", text);
 
-                // if a bid message was sent, then we are going to check for allowance
-                if text.to_string() == "ping" {
-                    tracing::info!("a ping message in room {}", room_id) ;
-                    send_himself(Message::Pong(Bytes::from_static(b"pong")), participant_id,room_id.clone(),&app_state).await ;
-                    continue;
-                }else if text.to_string() == "mute" || text.to_string() == "unmute" {
-                    let value = text.to_string() ;
-                    tracing::info!("{} message was received", value) ;
-                    let x = value + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
-                    broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
-                }else if text.to_string() == "start" {
-                    if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
-                        send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
-                    }else{
-                        if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
-                            send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
-                        }else {
-                            match redis_connection.set_pause_status(&room_id, false).await {
-                                Ok(_) => {
-                                    tracing::info!("successfully set the status to pause") ;
-                                    send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
-                                },
-                                Err(err) => {
-                                    tracing::error!("error occured while setting the pause status") ;
-                                    tracing::error!("err was {}", err) ;
-                                    send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
-                                }
-                            } ;
-                            let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
-                            tracing::info!("---------------------------------------") ;
-                            let last_player_id = match last_player_id {
-                                Ok(last_player_id) => {
-                                    tracing::info!("got the last player-id as {}", last_player_id) ;
-                                    last_player_id
-                                },
-                                Err(err) => {
-                                    tracing::error!("error while getting last player-id was {}", err) ;
-                                    1
-                                }
-                            } ;
-                            // we are going to return the first player from the auction
-                            let player = redis_connection.get_player(last_player_id).await ;
-                            let message ;
-                            match player {
-                                Ok(player) => {
-                                    message = Message::from(serde_json::to_string(&player).unwrap()) ;
-                                    // here we are going to add the player as Bid to the redis
-                                    let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
-                                    redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
-                                    // changing room-status
-                                    app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
-                                } ,
-                                Err(err) => {
-                                    tracing::info!("Unable to get the player-id, may be a technical Issue") ;
-                                    tracing::error!("{}", err) ;
-                                    message = Message::text("Technical Glitch") ;
-                                }
-                            } ;
-
-                            // broadcasting
-                            broadcast_handler(message,room_id.clone(),&app_state).await ;
-                        }
-                    }
-                }else if text.to_string() == "bid" {
-                    /*
-                        If previously the same participant has send the bid, then that shouldn't be considered
-
-                    */
-                     // if this key exists in the redis then only bids takes place
-                    if !redis_connection.check_key_exists(&timer_key).await.unwrap() {
-                        tracing::info!("as the key doesn't exists we are not going to take this bid") ;
-                        send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
-                    }else {
-                        if app_state.rooms.read().await.get(&room_id).unwrap().len() >= 3 {
-                            // the participant has bided
-                            let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
-                            match result {
-                                Ok(amount) => {
-                                    let message = Message::from(serde_json::to_string(&BidOutput{
-                                        bid_amount: amount,
-                                        team: team_name.clone()
-                                    }).unwrap()) ;
-                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
-                                }, Err(err) => {
-                                    if err == "highest" {
-                                        send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
-                                    }else{
-                                        send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
-                                    }
-                                }
-                            } ;
-                        }else{
-                            //  we are going to stop the auction at this point, we will keep another state in redis, called pause, if it is true then we are going to pause the auction
-                            // make the auction paused
-                            redis_connection.atomic_delete(&timer_key).await.unwrap() ;
-                            send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,room_id.clone(),&app_state).await ;
-                        }
-                    }
-
-                } else if text.to_string() == "end" {
-                    // ending the auction
-                    // when we click on end we are getting only exit as the message without any reason
-                    // check whether he was the creator of the room
-
-                        let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
-                        match result {
-                            Ok(result) => {
-                                if !result {
-                                    send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
-                                }else{
-                                    // second, check whether all the participants having least 15 players in their squad
-                                    let res = redis_connection.check_end_auction(room_id.clone()).await ;
-                                    let message ;
-                                    match res {
-                                        Ok(res) => {
-                                            if res {
-                                                // when front-end has disconnected automatically it's going to be the end.
-                                                // we are going to change the state of the auction to completed such that this room get's invalid
-                                                match app_state.database_connection.update_room_status(room_id.clone(), "completed").await {
-                                                    Ok(result) => {
-                                                        tracing::info!("room status changed to completed") ;
-                                                        // here we are going to remove the data from redis
-                                                        match redis_connection.atomic_delete(&room_id).await {
-                                                            Ok(_) => {
-                                                                tracing::info!("successfully removed the room from redis") ;
-                                                                message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
-                                                            },
-                                                            Err(err) => {
-                                                                tracing::info!("got error while removing the room from redis") ;
-                                                                tracing::error!("{}", err) ;
-                                                                message = Message::text("Technical Issue")
-                                                            }
-                                                        }
-                                                    },
-                                                    Err(err) => {
-                                                        tracing::info!("unable to update the room status to completed") ;
-                                                        tracing::error!("{}",err) ;
-                                                        message = Message::text("Technical Issue") ;
-                                                    }
-                                                }
-
-                                            }else {
-                                                message = Message::text("Not enough players brought by each team") ;
-                                            }
-                                        },
-                                        Err(err) => {
-                                            tracing::info!("Unable to get the room") ;
-                                            message = Message::text("Till all participants brought at least 15 player") ;
-                                        }
-                                    } ;
-                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
-                                }
-
-                            },
-                            Err(err) => {
-                                tracing::info!("getting error while is room_creator") ;
-                                send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
-                            }
-                        }
-
-
-                }else if text.to_string() == "pause" {
-
-                        // we are going to pause the auction, such that when clicked create again, going to start from the last player
-                        let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
-                        match result {
-                            Ok(result) => {
-                                if result {
-                                    // we are going to pause auction after the current bid
-                                    match redis_connection.set_pause_status(&room_id, true).await {
+                        // if a bid message was sent, then we are going to check for allowance
+                        if text.to_string() == "ping" {
+                            tracing::info!("a ping message in room {}", room_id) ;
+                            send_himself(Message::Pong(Bytes::from_static(b"pong")), participant_id,room_id.clone(),&app_state).await ;
+                            continue;
+                        }else if text.to_string() == "mute" || text.to_string() == "unmute" {
+                            let value = text.to_string() ;
+                            tracing::info!("{} message was received", value) ;
+                            let x = value + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
+                            broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
+                        }else if text.to_string() == "start" {
+                            if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
+                                send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
+                            }else{
+                                if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
+                                    send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
+                                }else {
+                                    match redis_connection.set_pause_status(&room_id, false).await {
                                         Ok(_) => {
-                                            tracing::info!("sucessfully set the status to pause") ;
+                                            tracing::info!("successfully set the status to pause") ;
                                             send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
                                         },
                                         Err(err) => {
@@ -385,171 +235,335 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
                                         }
                                     } ;
-                                }else {
-                                    send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
+                                    let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
+                                    tracing::info!("---------------------------------------") ;
+                                    let last_player_id = match last_player_id {
+                                        Ok(last_player_id) => {
+                                            tracing::info!("got the last player-id as {}", last_player_id) ;
+                                            last_player_id
+                                        },
+                                        Err(err) => {
+                                            tracing::error!("error while getting last player-id was {}", err) ;
+                                            1
+                                        }
+                                    } ;
+                                    // we are going to return the first player from the auction
+                                    let player = redis_connection.get_player(last_player_id).await ;
+                                    let message ;
+                                    match player {
+                                        Ok(player) => {
+                                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
+                                            // here we are going to add the player as Bid to the redis
+                                            let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
+                                            redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
+                                            // changing room-status
+                                            app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
+                                        } ,
+                                        Err(err) => {
+                                            tracing::info!("Unable to get the player-id, may be a technical Issue") ;
+                                            tracing::error!("{}", err) ;
+                                            message = Message::text("Technical Glitch") ;
+                                        }
+                                    } ;
+
+                                    // broadcasting
+                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
                                 }
-                            },
-                            Err(err) => {
-                                tracing::error!("got error while check is the creator") ;
-                                tracing::error!("{}", err) ;
                             }
-                        };
+                        }else if text.to_string() == "bid" {
+                            /*
+                                If previously the same participant has send the bid, then that shouldn't be considered
 
-                }else if text.to_string() == "rtm-accept" {
-                    // can only be called, if the key was rtms
-                    if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() {
-                        tracing::info!("rtm was being accepted") ;
-                        redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
-                        // accepting the bid
-                        let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                        let bid = room.current_bid.unwrap() ;
-                        let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
-                        // adding the bid to the redis
-                        redis_connection.update_current_bid(room_id.clone(), bid, 1).await.unwrap() ;
-                    }else {
-                      send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
-                    }
-                }else if text.to_string().contains("rtm-cancel") {
-                    tracing::info!("cancelling the offer by the highest bidder") ;
-                    redis_connection.atomic_delete(&timer_key).await.unwrap() ;
-                    // now we are going to send the same bid with expiry 0
-                    let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                    redis_connection.update_current_bid(room_id.clone(), room.current_bid.unwrap(), 1).await.unwrap() ;
-                    send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
-                }
-                else if text.to_string().contains("rtm") {
-                    tracing::info!("rtm was accepted with the following {}",text.to_string()) ;
-                    // we need to check
-                     // if this key exists in the redis then no bids takes place
-                    if !redis_connection.check_key_exists(&timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
-
-                        // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
-                        let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                        let bid = room.current_bid.unwrap() ;
-                        let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
-
-                        // now we are going to check whether the specific participant, has the authority to use the rtm, means the current player
-                        // previous team should be the participant playing team
-                        let rtm_placer_participant = get_participant_details(participant_id, &room.participants).unwrap() ;
-                        let previous_player = redis_connection.get_player(bid.player_id).await.unwrap() ;
-                        let full_team_name = get_previous_team_full_name(&previous_player.previous_team);
-                        let current_participant_team = rtm_placer_participant.0.team_name ;
-
-                        if full_team_name == current_participant_team {
-                            let new_amount = amount + bid.bid_amount ;
-                            // here we need to check whether the rtm placer having that much enough money and as well the same other guy having that much enough money
-                            if rtm_placer_participant.0.remaining_rtms > 0 {
-                                let highest_bidder_participant = get_participant_details(bid.participant_id, &room.participants).unwrap() ;
-                                let rtm_placer_participant_bid_allowance = bid_allowance_handler(room_id.clone(),new_amount, rtm_placer_participant.0.balance, rtm_placer_participant.0.total_players_brought).await ;
-                                let highest_bidder_participant_allowance = bid_allowance_handler(room_id.clone(),new_amount, highest_bidder_participant.0.balance, highest_bidder_participant.0.total_players_brought).await ;
-                                if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
-                                    tracing::info!("both having money, so let's delete the current key") ;
-                                    // creating the new Bid
-                                    let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
-                                    // adding the bid to the redis
-                                    let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
-                                    send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
-                                }else if rtm_placer_participant_bid_allowance {
-                                    tracing::info!("rtm bidder has enough money, so bid goes to him") ;
-                                    // delete the key and add the new bid with expiry 0 seconds
-                                    redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
-                                    // new bid
-                                    redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1).await.unwrap() ;
-                                    // send to the highest bidder the reason
-                                    send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
-                                }else {
-                                    tracing::info!("only the person having the rtm having the enough money") ;
-                                    send_himself(Message::text("Invalid Price with your price to players ratio"), participant_id, room_id.clone(), &app_state).await ;
+                            */
+                            // if this key exists in the redis then only bids takes place
+                            if !redis_connection.check_key_exists(&timer_key).await.unwrap() {
+                                tracing::info!("as the key doesn't exists we are not going to take this bid") ;
+                                send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
+                            }else {
+                                if app_state.rooms.read().await.get(&room_id).unwrap().len() >= 3 {
+                                    // the participant has bided
+                                    let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
+                                    match result {
+                                        Ok(amount) => {
+                                            let message = Message::from(serde_json::to_string(&BidOutput{
+                                                bid_amount: amount,
+                                                team: team_name.clone()
+                                            }).unwrap()) ;
+                                            broadcast_handler(message,room_id.clone(),&app_state).await ;
+                                        }, Err(err) => {
+                                            if err == "highest" {
+                                                send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
+                                            }else{
+                                                send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
+                                            }
+                                        }
+                                    } ;
+                                }else{
+                                    //  we are going to stop the auction at this point, we will keep another state in redis, called pause, if it is true then we are going to pause the auction
+                                    // make the auction paused
+                                    redis_connection.atomic_delete(&timer_key).await.unwrap() ;
+                                    send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,room_id.clone(),&app_state).await ;
                                 }
-                            }else{
-                                send_himself(Message::text("All RTMS were used"), participant_id, room_id.clone(), &app_state).await ;
                             }
+
+                        } else if text.to_string() == "end" {
+                            // ending the auction
+                            // when we click on end we are getting only exit as the message without any reason
+                            // check whether he was the creator of the room
+
+                            let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
+                            match result {
+                                Ok(result) => {
+                                    if !result {
+                                        send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
+                                    }else{
+                                        // second, check whether all the participants having least 15 players in their squad
+                                        let res = redis_connection.check_end_auction(room_id.clone()).await ;
+                                        let message ;
+                                        match res {
+                                            Ok(res) => {
+                                                if res {
+                                                    // when front-end has disconnected automatically it's going to be the end.
+                                                    // we are going to change the state of the auction to completed such that this room get's invalid
+                                                    match app_state.database_connection.update_room_status(room_id.clone(), "completed").await {
+                                                        Ok(result) => {
+                                                            tracing::info!("room status changed to completed") ;
+                                                            // here we are going to remove the data from redis
+                                                            match redis_connection.atomic_delete(&room_id).await {
+                                                                Ok(_) => {
+                                                                    tracing::info!("successfully removed the room from redis") ;
+                                                                    message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
+                                                                },
+                                                                Err(err) => {
+                                                                    tracing::info!("got error while removing the room from redis") ;
+                                                                    tracing::error!("{}", err) ;
+                                                                    message = Message::text("Technical Issue")
+                                                                }
+                                                            }
+                                                        },
+                                                        Err(err) => {
+                                                            tracing::info!("unable to update the room status to completed") ;
+                                                            tracing::error!("{}",err) ;
+                                                            message = Message::text("Technical Issue") ;
+                                                        }
+                                                    }
+
+                                                }else {
+                                                    message = Message::text("Not enough players brought by each team") ;
+                                                }
+                                            },
+                                            Err(err) => {
+                                                tracing::info!("Unable to get the room") ;
+                                                message = Message::text("Till all participants brought at least 15 player") ;
+                                            }
+                                        } ;
+                                        broadcast_handler(message,room_id.clone(),&app_state).await ;
+                                    }
+
+                                },
+                                Err(err) => {
+                                    tracing::info!("getting error while is room_creator") ;
+                                    send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
+                                }
+                            }
+
+
+                        }else if text.to_string() == "pause" {
+
+                            // we are going to pause the auction, such that when clicked create again, going to start from the last player
+                            let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
+                            match result {
+                                Ok(result) => {
+                                    if result {
+                                        // we are going to pause auction after the current bid
+                                        match redis_connection.set_pause_status(&room_id, true).await {
+                                            Ok(_) => {
+                                                tracing::info!("sucessfully set the status to pause") ;
+                                                send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
+                                            },
+                                            Err(err) => {
+                                                tracing::error!("error occured while setting the pause status") ;
+                                                tracing::error!("err was {}", err) ;
+                                                send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
+                                            }
+                                        } ;
+                                    }else {
+                                        send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
+                                    }
+                                },
+                                Err(err) => {
+                                    tracing::error!("got error while check is the creator") ;
+                                    tracing::error!("{}", err) ;
+                                }
+                            };
+
+                        }else if text.to_string() == "rtm-accept" {
+                            // can only be called, if the key was rtms
+                            if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() {
+                                tracing::info!("rtm was being accepted") ;
+                                redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
+                                // accepting the bid
+                                let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
+                                let bid = room.current_bid.unwrap() ;
+                                let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
+                                // adding the bid to the redis
+                                redis_connection.update_current_bid(room_id.clone(), bid, 1).await.unwrap() ;
+                            }else {
+                                send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
+                            }
+                        }else if text.to_string().contains("rtm-cancel") {
+                            tracing::info!("cancelling the offer by the highest bidder") ;
+                            redis_connection.atomic_delete(&timer_key).await.unwrap() ;
+                            // now we are going to send the same bid with expiry 0
+                            let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
+                            redis_connection.update_current_bid(room_id.clone(), room.current_bid.unwrap(), 1).await.unwrap() ;
+                            send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
+                        }
+                        else if text.to_string().contains("rtm") {
+                            tracing::info!("rtm was accepted with the following {}",text.to_string()) ;
+                            // we need to check
+                            // if this key exists in the redis then no bids takes place
+                            if !redis_connection.check_key_exists(&timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
+
+                                // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
+                                let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
+                                let bid = room.current_bid.unwrap() ;
+                                let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
+
+                                // now we are going to check whether the specific participant, has the authority to use the rtm, means the current player
+                                // previous team should be the participant playing team
+                                let rtm_placer_participant = get_participant_details(participant_id, &room.participants).unwrap() ;
+                                let previous_player = redis_connection.get_player(bid.player_id).await.unwrap() ;
+                                let full_team_name = get_previous_team_full_name(&previous_player.previous_team);
+                                let current_participant_team = rtm_placer_participant.0.team_name ;
+
+                                if full_team_name == current_participant_team {
+                                    let new_amount = amount + bid.bid_amount ;
+                                    // here we need to check whether the rtm placer having that much enough money and as well the same other guy having that much enough money
+                                    if rtm_placer_participant.0.remaining_rtms > 0 {
+                                        let highest_bidder_participant = get_participant_details(bid.participant_id, &room.participants).unwrap() ;
+                                        let rtm_placer_participant_bid_allowance = bid_allowance_handler(room_id.clone(),new_amount, rtm_placer_participant.0.balance, rtm_placer_participant.0.total_players_brought).await ;
+                                        let highest_bidder_participant_allowance = bid_allowance_handler(room_id.clone(),new_amount, highest_bidder_participant.0.balance, highest_bidder_participant.0.total_players_brought).await ;
+                                        if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
+                                            tracing::info!("both having money, so let's delete the current key") ;
+                                            // creating the new Bid
+                                            let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
+                                            // adding the bid to the redis
+                                            let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
+                                            send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
+                                        }else if rtm_placer_participant_bid_allowance {
+                                            tracing::info!("rtm bidder has enough money, so bid goes to him") ;
+                                            // delete the key and add the new bid with expiry 0 seconds
+                                            redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
+                                            // new bid
+                                            redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1).await.unwrap() ;
+                                            // send to the highest bidder the reason
+                                            send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
+                                        }else {
+                                            tracing::info!("only the person having the rtm having the enough money") ;
+                                            send_himself(Message::text("Invalid Price with your price to players ratio"), participant_id, room_id.clone(), &app_state).await ;
+                                        }
+                                    }else{
+                                        send_himself(Message::text("All RTMS were used"), participant_id, room_id.clone(), &app_state).await ;
+                                    }
+                                }else {
+                                    send_himself(Message::text("The current player is not in ur team previously"), participant_id, room_id.clone(), &app_state).await ;
+                                }
+                            }
+
                         }else {
-                            send_himself(Message::text("The current player is not in ur team previously"), participant_id, room_id.clone(), &app_state).await ;
+                            let message ;
+                            let to_participant ;
+                            tracing::info!("******************* Message for WeB RTC was ***************************") ;
+                            tracing::info!("here is the front-end passed message {}", text.to_string()) ;
+                            tracing::info!("****************************** *****************************************") ;
+                            if !(text.to_string().starts_with('{') && text.to_string().ends_with('}')) {
+                                tracing::warn!("Ignoring non-JSON message: {}", text);
+                                continue;
+                            }
+                            let parsed: SignalingMessage = match serde_json::from_str(&text) {
+                                Ok(msg) => msg,
+                                Err(err) => {
+                                    eprintln!("Failed to parse signaling message: {}", err);
+                                    send_himself(Message::text("Unable to parse what you have sent"), participant_id, room_id.clone(), &app_state).await ;
+                                    continue;
+                                }
+                            };
+
+                            match parsed {
+
+                                SignalingMessage::Offer { from, to, payload } => {
+                                    tracing::info!("got the offer from {} and to {}", from, to) ;
+                                    message = Message::from(serde_json::to_string(&SignalingMessage::Offer {from, to, payload}).unwrap()) ;
+                                    to_participant = to ;
+                                },
+                                SignalingMessage::Answer { from, to, payload } => {
+                                    // forward to participant `to`
+                                    tracing::info!("got the answer from {} and to {}", from, to) ;
+                                    message = Message::from(serde_json::to_string(&SignalingMessage::Answer {from, to, payload}).unwrap()) ;
+                                    to_participant = to ;
+                                }
+
+                                SignalingMessage::IceCandidate { from, to, payload } => {
+                                    // forward to participant `to`
+                                    tracing::info!("got the ice-candidate from {} and to {}", from, to) ;
+                                    message = Message::from(serde_json::to_string(&SignalingMessage::IceCandidate {from, to, payload}).unwrap()) ;
+                                    to_participant = to ;
+                                }
+
+                                _ => {
+                                    message = Message::text("Invalid Message") ;
+                                    to_participant = participant_id ;
+                                }
+                            };
+
+                            send_himself(message, to_participant, room_id.clone(), &app_state).await ;
+
                         }
+
+                    },
+                    Message::Close(_) => {
+                        tracing::info!("Client disconnected");
+                        handle_disconnect(&room_id, participant_id, team_name, &app_state).await ;
+                        return;
                     }
-
-                }else {
-                    let message ;
-                    let to_participant ;
-                    tracing::info!("******************* Message for WeB RTC was ***************************") ;
-                    tracing::info!("here is the front-end passed message {}", text.to_string()) ;
-                    tracing::info!("****************************** *****************************************") ;
-                    if !(text.to_string().starts_with('{') && text.to_string().ends_with('}')) {
-                        tracing::warn!("Ignoring non-JSON message: {}", text);
-                        continue;
-                    }
-                    let parsed: SignalingMessage = match serde_json::from_str(&text) {
-                        Ok(msg) => msg,
-                        Err(err) => {
-                            eprintln!("Failed to parse signaling message: {}", err);
-                            send_himself(Message::text("Unable to parse what you have sent"), participant_id, room_id.clone(), &app_state).await ;
-                            continue;
-                        }
-                    };
-
-                    match parsed {
-
-                        SignalingMessage::Offer { from, to, payload } => {
-                            tracing::info!("got the offer from {} and to {}", from, to) ;
-                            message = Message::from(serde_json::to_string(&SignalingMessage::Offer {from, to, payload}).unwrap()) ;
-                            to_participant = to ;
-                        },
-                        SignalingMessage::Answer { from, to, payload } => {
-                            // forward to participant `to`
-                            tracing::info!("got the answer from {} and to {}", from, to) ;
-                            message = Message::from(serde_json::to_string(&SignalingMessage::Answer {from, to, payload}).unwrap()) ;
-                            to_participant = to ;
-                        }
-
-                        SignalingMessage::IceCandidate { from, to, payload } => {
-                            // forward to participant `to`
-                            tracing::info!("got the ice-candidate from {} and to {}", from, to) ;
-                            message = Message::from(serde_json::to_string(&SignalingMessage::IceCandidate {from, to, payload}).unwrap()) ;
-                            to_participant = to ;
-                        }
-
-                        _ => {
-                            message = Message::text("Invalid Message") ;
-                            to_participant = participant_id ;
-                        }
-                    };
-
-                    send_himself(message, to_participant, room_id.clone(), &app_state).await ;
-
+                    Message::Binary(bytes) => todo!(),
+                    Message::Ping(bytes) => {
+                        // Browser will NEVER reach here.
+                        // Only servers / Node clients can trigger this.
+                    },
+                    Message::Pong(bytes) => todo!(),
                 }
-
             },
-            Message::Close(_) => {
-                tracing::info!("Client disconnected");
-                // we are removing the disconnected client, such that the unbounded channel will not overload if queue is filled with multiple disconnected message to client
-                let mut value = app_state.rooms.write().await ;
-                let mut index: u8 = 0 ;
-
-                for participant in value.get(&room_id).unwrap().iter() {
-                    if participant.0 == participant_id {
-                        break
-                    }
-                    index += 1 ;
-                }
-
-                /*
-                    need to broadcast which participant has been disconnected, and when joins we are any way sending the message
-                */
-
-                value.get_mut(&room_id).unwrap().remove(index as usize);
-                drop(value) ;
-                broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name }).unwrap()), room_id.clone(), &app_state).await ;
-                return;
-            }
-            Message::Binary(bytes) => todo!(),
-            Message::Ping(bytes) => {
-                // Browser will NEVER reach here.
-                // Only servers / Node clients can trigger this.
+            Err(err) => {
+                tracing::warn!("disrupt disconnect, mostly on page refreshes") ;
+                handle_disconnect(&room_id, participant_id, team_name, &app_state).await ;
+                return
             },
-            Message::Pong(bytes) => todo!(),
         }
     }
+}
+
+
+pub async fn handle_disconnect(room_id: &str, participant_id: i32, team_name: String,app_state: &AppState) {
+    // we are removing the disconnected client, such that the unbounded channel will not overload if queue is filled with multiple disconnected message to client
+    let mut value = app_state.rooms.write().await ;
+    let mut index: u8 = 0 ;
+
+    for participant in value.get(room_id).unwrap().iter() {
+        if participant.0 == participant_id {
+            break
+        }
+        index += 1 ;
+    }
+
+    /*
+        need to broadcast which participant has been disconnected, and when joins we are any way sending the message
+    */
+
+    value.get_mut(room_id).unwrap().remove(index as usize);
+    drop(value) ;
+    broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name }).unwrap()), room_id.to_string(), &app_state).await ;
 }
 
 pub async fn broadcast_handler(msg: Message,room_id: String, state: &AppState) { // if we want to send a message to all the participants in the room, we use broadcaster
