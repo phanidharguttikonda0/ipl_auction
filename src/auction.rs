@@ -492,6 +492,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 if !room.skip_count.contains_key(&participant_id) {
                                     room.skip_count.insert(participant_id, true) ;
                                     let mut message ;
+                                    tracing::info!("{} are equal {}", room.skip_count.len(),room.participants.len()) ;
+                                    redis_connection.set_room(room_id.clone(), room.clone()).await.unwrap() ;
                                     if room.skip_count.len() == room.participants.len() {
                                         tracing::info!("All teams Skipped the Player") ;
                                         message = String::from("All teams skipped") ;
