@@ -416,7 +416,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             redis_connection.atomic_delete(&timer_key).await.unwrap() ;
                             // now we are going to send the same bid with expiry 0
                             let room = redis_connection.get_room_details(room_id.clone()).await.unwrap() ;
-                            redis_connection.update_current_bid(room_id.clone(), room.current_bid.unwrap(), 1).await.unwrap() ;
+                            let mut current_bid = room.current_bid.unwrap() ;
+                            current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
+                            redis_connection.update_current_bid(room_id.clone(), current_bid, 1).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
                         }
                         else if text.to_string().contains("rtm") {
