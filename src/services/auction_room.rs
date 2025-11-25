@@ -40,7 +40,7 @@ impl RedisConnection {
         let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         let timer_key;
         if bid.is_rtm {
-            timer_key = format!("auction:timer:rtms{}", room_id)
+            timer_key = format!("auction:timer:rtms:{}", room_id)
         }else {
             timer_key = format!("auction:timer:{}", room_id) ;
         }
