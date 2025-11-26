@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
+use crate::models::app_state::Player;
+use crate::models::bot::Bot;
 
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
 pub struct AuctionRoom {
@@ -8,7 +10,9 @@ pub struct AuctionRoom {
     pub participants: Vec<AuctionParticipant>,
     pub last_player_id: i32,
     pub pause: bool,
-    pub skip_count: HashMap<i32, bool> // if a participant has been skipped, or he has not clicked the skip button
+    pub skip_count: HashSet<i32>, // if a participant has been skipped, or he has not clicked the skip button
+    pub bots: Bot,
+    pub current_player: Option<Player>
 } //  this is where we are going to store in redis with a key as room_id and value as auction_room
 
 impl AuctionRoom {
@@ -18,7 +22,9 @@ impl AuctionRoom {
             participants: Vec::new(),
             last_player_id,
             pause: false,
-            skip_count: HashMap::new()
+            skip_count: HashSet::new(),
+            bots: Bot::default(),
+            current_player: None
         }
     }
     pub fn add_participant(&mut self, participant: AuctionParticipant) {

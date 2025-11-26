@@ -20,4 +20,5 @@ pub struct Player {
     pub country: String,
     pub role: String,
     pub previous_team: String,
+    pub player_rating: i32
 }

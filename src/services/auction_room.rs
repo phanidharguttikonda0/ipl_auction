@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use redis::{AsyncCommands, Commands, RedisResult};
 use crate::auction::{bid_allowance_handler, broadcast_handler, send_message_to_participant};
@@ -187,17 +187,7 @@ impl RedisConnection {
                 if current_bid.participant_id == participant_id {
                     return Err("highest".to_string())
                 }
-                let next_bid_increment ;
-                if previous_bid == 0.0 {
-                    next_bid_increment = current_bid.base_price ;
-                } else if previous_bid < 1.0 {
-                    // we are going to increment by 0.05
-                    next_bid_increment = 0.05 ;
-                }else if previous_bid < 10.0 {
-                    next_bid_increment = 0.10 ;
-                }else {
-                    next_bid_increment = 0.25 ;
-                }
+                let next_bid_increment = get_next_bid_increment(previous_bid, &current_bid);
                 tracing::info!("next bid increment was {}", next_bid_increment) ;
                 let participant = get_participant_details(participant_id, &room.participants).unwrap().0;
                 let balance = participant.balance;
@@ -394,6 +384,20 @@ impl RedisConnection {
 
 }
 
+pub fn get_next_bid_increment(previous_bid: f32, current_bid: &Bid) -> f32 {
+    let next_bid_increment ;
+    if previous_bid == 0.0 {
+        next_bid_increment = current_bid.base_price ;
+    } else if previous_bid < 1.0 {
+        // we are going to increment by 0.05
+        next_bid_increment = 0.05 ;
+    }else if previous_bid < 10.0 {
+        next_bid_increment = 0.10 ;
+    }else {
+        next_bid_increment = 0.25 ;
+    }
+    next_bid_increment
+}
 
 
 // -------------------------- Spawning the task for expiry bid logic ------------------------------------
@@ -438,6 +442,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
 
                 // here we are going to check whether the specific player having the previous team or not
                 let previous_player = redis_connection.get_player(player_id).await? ;
+                let bid_amount = res.current_bid.clone().unwrap().bid_amount ;
                 let pause_status = res.pause ;
                 if is_rtm == "rtms" {
                     tracing::info!("the expired key was the RTM one") ;
@@ -462,7 +467,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
                     res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
-                    res.skip_count = HashMap::new() ; // making sure no previous skips
+                    res.skip_count = HashSet::new() ; // making sure no previous skips
                     let res = serde_json::to_string(&res).unwrap();
                     conn.set::<_,_,()>(&room_id, res).await?;
 
@@ -499,15 +504,25 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("previous team {}", full_team_name) ;
                     tracing::info!("is rtm bid {}, it should be false",current_bid.rtm_bid) ;
                     tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
+                    if res.bots.is_bot_participant(current_bid.participant_id) {
+                        tracing::info!("No RTMS for Bots as of know") ;
+                    }
                     if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid)
                         && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id
-                        && !res.skip_count.contains_key(&previous_team_participant_id)
+                        && !res.skip_count.contains(&previous_team_participant_id) && !res.bots.is_bot_participant(current_bid.participant_id)
                     { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
                         tracing::info!("going to send the Use RTM") ;
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
                         // now we are going to send the notification to the previous team to use the RTM, if he not uses it
                         // then this will expiry in 20 seconds.
-
+                        
+                        
+                        
+                        //*** we are going to check whether it was the bot or not, if it's bot then we are going to set the logic
+                        
+                        
+                        
+                        // if not then the following
                         send_message_to_participant(previous_team_participant_id, String::from("Use RTM"), room_id.clone(), &app_state).await ;
 
                         // setting the new timer
@@ -547,7 +562,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                                 message = Message::text("UnSold") ;
                             }
                             // making sure no skipped count
-                            res.skip_count = HashMap::new() ;
+                            res.skip_count = HashSet::new() ;
                             let res = serde_json::to_string(&res).unwrap();
                             conn.set::<_,_,()>(&room_id, res).await?;
                             tracing::info!("we are going to broadcast the message to the room participant") ;
@@ -572,6 +587,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                 let message ;
                 if sold  {
                     message = get_next_player(room_id.clone(), player_id, bid_expiry, pause_status).await ;
+                    // if participant_id was not a bot then, there will be no problem
+                    let mut room = redis_connection.get_room_details(&room_id).await?;
+                    room.bots.update_acquired_count(participant_id,&previous_player.role) ;
+                    room.bots.update_budget_left(participant_id, bid_amount) ;
+                    redis_connection.set_room(room_id.clone(), room).await? ;
+                    tracing::info!("Updated the bots bid") ;
                 }else {
                     message = Message::text("Auction was Paused");
                 }
@@ -591,6 +612,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
 
     Ok(())
 }
+
+
 
 
 pub fn get_participant_details(participant_id: i32, participants: &Vec<AuctionParticipant>) -> Option<(AuctionParticipant, u8)> {

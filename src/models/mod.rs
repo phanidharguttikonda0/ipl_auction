@@ -4,3 +4,4 @@ pub mod room_models;
 pub mod player_models;
 pub mod authentication_models;
 pub mod webRTC_models;
+pub mod bot;

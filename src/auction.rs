@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use axum::body::Bytes;
 use axum::Extension;
@@ -9,10 +9,11 @@ use redis::aio::AsyncPushSender;
 use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
 use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOutput, NewJoiner};
-use crate::services::auction_room::{get_participant_details, RedisConnection};
+use crate::services::auction_room::{get_next_bid_increment, get_participant_details, RedisConnection};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use crate::models::authentication_models::Claims;
+use crate::models::bot::{each_team_desired_counts, get_each_team_user_id, Bot, BotInformation, RatingPlayer};
 use crate::models::room_models::Participant;
 use crate::models::webRTC_models::SignalingMessage;
 use crate::services::other::get_previous_team_full_name;
@@ -53,7 +54,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             return;
         }
     } ;
-    let result = app_state.database_connection.get_team_name(participant_id).await;  // getting team name from the participant
+    let mut result = app_state.database_connection.get_team_name(participant_id).await;  // getting team name from the participant
     let team_name = match result {
         Ok(result) => {
             result
@@ -235,6 +236,28 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
                                         }
                                     } ;
+                                    let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
+                                    if room.bots.list_of_teams.len() == 0 && room.participants.len() != 10 {
+                                        tracing::info!("initializing bots") ;
+                                        // we need to get remaining teams
+                                        tracing::info!("going to get remaining teams") ;
+                                        let remaining_teams = app_state.database_connection.get_remaining_teams(room_id.clone()).await.unwrap() ;
+                                        let mut list_of_teams :  Vec<BotInformation> = vec![];
+                                        for team in remaining_teams {
+                                            let mut bot_information = each_team_desired_counts(&team) ;
+                                            // now we are going to add this participant to the redis and as well as the postgres
+                                            let user_id = get_each_team_user_id(&team) ;
+                                            let participant_id = app_state.database_connection.add_participant(user_id, room_id.clone(), team.clone()).await.unwrap() ;
+                                            // now let's fill it in redis
+                                            room.participants.push(AuctionParticipant::new(participant_id,team, 3)) ;
+                                            bot_information.participant_id = participant_id ;
+                                            list_of_teams.push(bot_information) ;
+                                        }
+                                        tracing::info!("adding list of teams to the Bot and assigning it to the room.bots") ;
+                                        room.bots = Bot::new(list_of_teams) ;
+                                        // now we are going to set the room
+                                        redis_connection.set_room(room_id.clone(),room.clone()).await.unwrap() ;
+                                    }
                                     let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
                                     tracing::info!("---------------------------------------") ;
                                     let last_player_id = match last_player_id {
@@ -249,13 +272,34 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     } ;
                                     // we are going to return the first player from the auction
                                     let player = redis_connection.get_player(last_player_id).await ;
-                                    let message ;
+                                    let mut message ;
                                     match player {
                                         Ok(player) => {
-                                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
+
                                             // here we are going to add the player as Bid to the redis
-                                            let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
+                                            let mut bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
+                                            // here we are going to send the player along with bots bid
+                                            let result = room.bots.decide_bid(&RatingPlayer {
+                                                role: player.role.clone(),
+                                                rating: player.player_rating
+                                            }, player.base_price, HashSet::new()) ;
+                                            room.skip_count = result.2 ;
+                                            if result.0 != "None" {
+                                                bid.bid_amount = player.base_price ;
+                                                bid.participant_id = result.1 ;
+                                            }
+                                            redis_connection.set_room(room_id.clone(), room).await.unwrap() ;
                                             redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
+                                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
+                                            broadcast_handler(message,room_id.clone(),&app_state).await ;
+                                            if result.0 != "None" {
+                                                tracing::info!("bot has been bided") ;
+                                                message = Message::from(serde_json::to_string(&BidOutput{
+                                                    bid_amount: player.base_price,
+                                                    team: result.0
+                                                }).unwrap()) ;
+                                                broadcast_handler(message,room_id.clone(),&app_state).await ;
+                                            }
                                             // changing room-status
                                             app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
                                         } ,
@@ -263,11 +307,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
                                             tracing::error!("{}", err) ;
                                             message = Message::text("Technical Glitch") ;
+                                            broadcast_handler(message,room_id.clone(),&app_state).await ;
                                         }
                                     } ;
 
-                                    // broadcasting
-                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
                                 }
                             }
                         }else if text.to_string() == "bid" {
@@ -281,27 +324,43 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
                             }else {
                                 let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
-                                if room.skip_count.contains_key(&participant_id) {
+                                if room.skip_count.contains(&participant_id) {
                                     tracing::info!("skipped the player, the bid is not valid any more") ;
                                     send_himself(Message::text("Bid is Invalid, you skipped the player"), participant_id, room_id.clone(), &app_state).await ;
                                 } else if app_state.rooms.read().await.get(&room_id).unwrap().len() >= 3 {
-                                    // the participant has bided
-                                    let result =  redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await ;
-                                    match result {
-                                        Ok(amount) => {
-                                            let message = Message::from(serde_json::to_string(&BidOutput{
+                                    // before proceeding with the participant, id let's see bot bids or not
+                                    let bot = room.bots.clone() ;
+                                    let mut bid_amount =
+                                    redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await.expect("new bid unwrap failed") ;
+                                    let mut message = Message::from(serde_json::to_string(&BidOutput{
+                                        bid_amount,
+                                        team: team_name.clone()
+                                    }).unwrap()) ;
+                                    if bot.list_of_teams.len() != 0 {
+                                        let mut bid = room.current_bid.clone().unwrap() ;
+
+                                        let future_bid = get_next_bid_increment(bid_amount, &bid) ;
+                                        // we are taking 2 future bids because
+                                        let current_player = room.current_player.clone().unwrap() ;
+                                        let res = bot.decide_bid(&RatingPlayer {
+                                            role: current_player.role.clone(),
+                                            rating: current_player.player_rating,
+                                        }, bid.bid_amount, room.skip_count) ;
+                                        room.skip_count = res.2 ;
+                                        redis_connection.set_room(room_id.clone(), room).await.unwrap() ;
+                                        if res.0 != "None" {
+                                            // now the new bid was by bot
+                                            tracing::info!("new bid by bot") ;
+                                            let amount =  redis_connection.new_bid(res.1, room_id.clone(),expiry_time).await.expect("new bid unwrap failed") ;
+                                            broadcast_handler(message, room_id.clone(), &app_state) .await ;
+                                            message = Message::from(serde_json::to_string(&BidOutput{
                                                 bid_amount: amount,
-                                                team: team_name.clone()
+                                                team: res.0
                                             }).unwrap()) ;
-                                            broadcast_handler(message,room_id.clone(),&app_state).await ;
-                                        }, Err(err) => {
-                                            if err == "highest" {
-                                                send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
-                                            }else{
-                                                send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
-                                            }
                                         }
-                                    } ;
+                                    }
+                                    tracing::info!("Passing Bid") ;
+                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
                                 }else{
                                     //  we are going to stop the auction at this point, we will keep another state in redis, called pause, if it is true then we are going to pause the auction
                                     // make the auction paused
@@ -371,7 +430,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 }
                             }
 
-
                         }else if text.to_string() == "pause" {
 
                             // we are going to pause the auction, such that when clicked create again, going to start from the last player
@@ -432,7 +490,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
                                 redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
                                 // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
-                                let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
+                                let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                                 let mut bid = room.current_bid.unwrap() ;
                                 let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
 
@@ -452,12 +510,36 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         let highest_bidder_participant_allowance = bid_allowance_handler(room_id.clone(),new_amount, highest_bidder_participant.0.balance, highest_bidder_participant.0.total_players_brought).await ;
                                         if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
                                             tracing::info!("both having money") ;
-                                            // creating the new Bid
-                                            let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
-                                            // adding the bid to the redis
-                                            let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
-                                            send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
-                                            continue;
+                                            let mut bot_not_approved = true ;
+                                            if room.bots.clone().is_bot_participant(bid.participant_id) {
+                                                for x in room.bots.list_of_teams.clone().iter() {
+                                                    if x.participant_id != bid.participant_id {
+                                                        room.skip_count.insert(x.participant_id) ;
+                                                    }
+                                                } // now except the highest bidder every one will be skipped
+                                                let result = room.bots.decide_bid(&RatingPlayer {
+                                                    role: room.current_player.clone().unwrap().role.clone(),
+                                                    rating: room.current_player.clone().unwrap().player_rating,
+                                                }, new_amount, room.skip_count) ;
+                                                if result.0 != "None" {
+                                                    tracing::info!("the bot has decided to accept the RTM amount") ;
+                                                    let bid_ = Bid::new(bid.participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
+                                                    // adding the bid to the redis
+                                                    let _ = redis_connection.update_current_bid(room_id.clone(), bid_, 1).await.unwrap() ;
+                                                    bot_not_approved = false ;
+                                                }
+                                            }
+
+                                            if bot_not_approved {
+                                                tracing::info!("bot not approved the bid") ;
+                                                // creating the new Bid
+                                                let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
+                                                // adding the bid to the redis
+                                                let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
+                                                send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
+                                                continue;
+                                            }
+
                                         }else if rtm_placer_participant_bid_allowance {
                                             tracing::info!("rtm bidder has enough money, so bid goes to him") ;
                                             // delete the key and add the new bid with expiry 0 seconds
@@ -489,8 +571,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             // we need to add a state in redis
                             let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
 
-                                if !room.skip_count.contains_key(&participant_id) {
-                                    room.skip_count.insert(participant_id, true) ;
+                                if !room.skip_count.contains(&participant_id) {
+                                    room.skip_count.insert(participant_id) ;
                                     let mut message ;
                                     tracing::info!("{} are equal {}", room.skip_count.len(),room.participants.len()) ;
                                     redis_connection.set_room(room_id.clone(), room.clone()).await.unwrap() ;

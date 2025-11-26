@@ -985,6 +985,7 @@ dependencies = [
  "http",
  "json-web-token",
  "jsonwebtoken",
+ "rand 0.9.2",
  "redis",
  "redis-derive",
  "serde",
