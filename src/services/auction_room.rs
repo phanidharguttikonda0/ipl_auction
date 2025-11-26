@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use redis::{AsyncCommands, Commands, RedisResult};
 use crate::auction::{bid_allowance_handler, broadcast_handler, send_message_to_participant};
@@ -91,7 +92,9 @@ impl RedisConnection {
             }
         }
     }
+    
 
+    
     pub async fn check_participant(&mut self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
         let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         match value {
@@ -362,8 +365,8 @@ impl RedisConnection {
         }
     }
 
-    pub async fn get_room_details(&mut self, room_id: String) -> Result<AuctionRoom, redis::RedisError> {
-        let room: RedisResult<String> = self.connection.get(&room_id).await ;
+    pub async fn get_room_details(&mut self, room_id: &str) -> Result<AuctionRoom, redis::RedisError> {
+        let room: RedisResult<String> = self.connection.get(room_id).await ;
         match room {
             Ok(room) => Ok(serde_json::from_str(&room).unwrap()),
             Err(e) => Err(e)
@@ -397,6 +400,7 @@ impl RedisConnection {
 use tokio_stream::StreamExt;
 use redis::{Client, aio::PubSub};
 use axum::extract::ws::{Message};
+use futures_util::future::err;
 use serde_json::Error;
 use crate::models::room_models::Participant;
 use crate::services::other::get_previous_team_full_name;
@@ -458,6 +462,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
                     res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
+                    res.skip_count = HashMap::new() ; // making sure no previous skips
                     let res = serde_json::to_string(&res).unwrap();
                     conn.set::<_,_,()>(&room_id, res).await?;
 
@@ -494,7 +499,10 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("previous team {}", full_team_name) ;
                     tracing::info!("is rtm bid {}, it should be false",current_bid.rtm_bid) ;
                     tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
-                    if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid) && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
+                    if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid)
+                        && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id
+                        && !res.skip_count.contains_key(&previous_team_participant_id)
+                    { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
                         tracing::info!("going to send the Use RTM") ;
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
                         // now we are going to send the notification to the previous team to use the RTM, if he not uses it
@@ -538,6 +546,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             }else{
                                 message = Message::text("UnSold") ;
                             }
+                            // making sure no skipped count
+                            res.skip_count = HashMap::new() ;
                             let res = serde_json::to_string(&res).unwrap();
                             conn.set::<_,_,()>(&room_id, res).await?;
                             tracing::info!("we are going to broadcast the message to the room participant") ;
@@ -565,6 +575,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                 }else {
                     message = Message::text("Auction was Paused");
                 }
+
                 broadcast_handler(message,room_id.clone(), &app_state ).await ;
             },
             Ok(None) => {

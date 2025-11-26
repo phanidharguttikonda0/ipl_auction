@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 
@@ -6,8 +7,9 @@ pub struct AuctionRoom {
     pub current_bid: Option<Bid>,
     pub participants: Vec<AuctionParticipant>,
     pub last_player_id: i32,
-    pub pause: bool
-} //  this is where we are going to store in redis with key as room_id and value as auction_room
+    pub pause: bool,
+    pub skip_count: HashMap<i32, bool> // if a participant has been skipped, or he has not clicked the skip button
+} //  this is where we are going to store in redis with a key as room_id and value as auction_room
 
 impl AuctionRoom {
     pub fn new(last_player_id: i32) -> Self {
@@ -15,7 +17,8 @@ impl AuctionRoom {
             current_bid: None,
             participants: Vec::new(),
             last_player_id,
-            pause: false
+            pause: false,
+            skip_count: HashMap::new()
         }
     }
     pub fn add_participant(&mut self, participant: AuctionParticipant) {
