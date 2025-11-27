@@ -38,7 +38,8 @@ pub struct AuctionParticipant {
     pub team_name: String, // team name
     pub balance: f32, // at start 100cr is the balance
     pub total_players_brought: u8,
-    pub remaining_rtms: i16
+    pub remaining_rtms: i16,
+    pub is_bot: bool
 }
 
 impl AuctionParticipant {
@@ -48,7 +49,8 @@ impl AuctionParticipant {
             team_name,
             balance: 100.0,
             total_players_brought: 0,
-            remaining_rtms
+            remaining_rtms,
+            is_bot: false
         }
     }
 }
@@ -86,7 +88,8 @@ pub struct BidOutput {
 pub struct SoldPlayer {
     pub team_name: String,
     pub sold_price: f32,
-    pub(crate) remaining_balance: f32
+    pub(crate) remaining_balance: f32,
+    pub remaining_rtms: u8
 }
 
 #[derive(Debug,Clone, Serialize, Deserialize)]

@@ -118,7 +118,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 team_name: team_name.clone(),
                 balance: 100.00,
                 total_players_brought: 0,
-                remaining_rtms: 3
+                remaining_rtms: 3,
+                is_bot: false
             } ;
             broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
@@ -219,12 +220,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             let x = value + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
                             broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
                         }else if text.to_string() == "start" {
-                            if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
-                                send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
-                            }else{
-                                if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
-                                    send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,room_id.clone(),&app_state).await ;
-                                }else {
+
                                     match redis_connection.set_pause_status(&room_id, false).await {
                                         Ok(_) => {
                                             tracing::info!("successfully set the status to pause") ;
@@ -236,6 +232,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
                                         }
                                     } ;
+                            // changing room-status
+                            app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
                                     let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                                     if room.bots.list_of_teams.len() == 0 && room.participants.len() != 10 {
                                         tracing::info!("initializing bots") ;
@@ -248,8 +246,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // now we are going to add this participant to the redis and as well as the postgres
                                             let user_id = get_each_team_user_id(&team) ;
                                             let participant_id = app_state.database_connection.add_participant(user_id, room_id.clone(), team.clone()).await.unwrap() ;
+                                            let mut auction_participant = AuctionParticipant::new(participant_id,team, 3) ;
+                                            auction_participant.is_bot = true ;
                                             // now let's fill it in redis
-                                            room.participants.push(AuctionParticipant::new(participant_id,team, 3)) ;
+                                            room.participants.push(auction_participant) ;
                                             bot_information.participant_id = participant_id ;
                                             list_of_teams.push(bot_information) ;
                                         }
@@ -300,8 +300,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                 }).unwrap()) ;
                                                 broadcast_handler(message,room_id.clone(),&app_state).await ;
                                             }
-                                            // changing room-status
-                                            app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
                                         } ,
                                         Err(err) => {
                                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
@@ -311,8 +309,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         }
                                     } ;
 
-                                }
-                            }
+
+
                         }else if text.to_string() == "bid" {
                             /*
                                 If previously the same participant has send the bid, then that shouldn't be considered
@@ -327,11 +325,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 if room.skip_count.contains(&participant_id) {
                                     tracing::info!("skipped the player, the bid is not valid any more") ;
                                     send_himself(Message::text("Bid is Invalid, you skipped the player"), participant_id, room_id.clone(), &app_state).await ;
-                                } else if app_state.rooms.read().await.get(&room_id).unwrap().len() >= 3 {
+                                }else{
                                     // before proceeding with the participant, id let's see bot bids or not
                                     let bot = room.bots.clone() ;
                                     let mut bid_amount =
-                                    redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await.expect("new bid unwrap failed") ;
+                                        redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await.expect("new bid unwrap failed") ;
                                     let mut message = Message::from(serde_json::to_string(&BidOutput{
                                         bid_amount,
                                         team: team_name.clone()
@@ -361,11 +359,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     }
                                     tracing::info!("Passing Bid") ;
                                     broadcast_handler(message,room_id.clone(),&app_state).await ;
-                                }else{
-                                    //  we are going to stop the auction at this point, we will keep another state in redis, called pause, if it is true then we are going to pause the auction
-                                    // make the auction paused
-                                    redis_connection.atomic_delete(&timer_key).await.unwrap() ;
-                                    send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,room_id.clone(),&app_state).await ;
                                 }
                             }
 

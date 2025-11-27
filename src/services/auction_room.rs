@@ -451,11 +451,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     let details = get_participant_details(participant_id, &res.participants).unwrap() ;
                     if bid.is_rtm {
                         // we are going to update the rtms of the user
-                        redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
+                        // redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
                         // we are going to update in the sql as well.
                         app_state.database_connection.update_remaining_rtms(participant_id).await.unwrap();
                         res.participants[details.1 as usize].remaining_rtms -= 1 ;
                     }
+                    let remaining_rtms = res.participants[details.1 as usize].remaining_rtms as u8;
                     // we are going to sell the player to the person,
                     tracing::info!("player was a sold player") ;
                     app_state.database_connection.add_sold_player(room_id.clone(), bid.player_id, bid.participant_id, bid.bid_amount).await.unwrap();
@@ -477,7 +478,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         serde_json::to_string(&SoldPlayer {
                             team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
                             sold_price: bid.bid_amount,
-                            remaining_balance
+                            remaining_balance,
+                            remaining_rtms
                         }).unwrap()
                     ), room_id.clone(), &app_state).await ;
                     
@@ -544,23 +546,24 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             let mut remaining_balance: f32 = 0.0 ;
                             if participant_id != 0 {
                                 let details = get_participant_details(participant_id, &res.participants).unwrap() ;
+                                let remaining_rtms = res.participants[details.1 as usize].remaining_rtms ;
                                 res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
                                 res.participants[details.1 as usize].total_players_brought += 1 ;
                                 remaining_balance = res.participants[details.1 as usize].balance ;
                                 res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
-                            }
-
-                            if current_bid.clone().bid_amount != 0.0 {
                                 message= Message::from(
                                     serde_json::to_string(&SoldPlayer {
                                         team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
                                         sold_price: current_bid.clone().bid_amount,
-                                        remaining_balance
+                                        remaining_balance,
+                                        remaining_rtms: remaining_rtms as u8
                                     }).unwrap()
                                 );
                             }else{
                                 message = Message::text("UnSold") ;
                             }
+
+
                             // making sure no skipped count
                             res.skip_count = HashSet::new() ;
                             let res = serde_json::to_string(&res).unwrap();
