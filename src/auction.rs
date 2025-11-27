@@ -342,6 +342,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     send_himself(Message::text("Bid is Invalid, you skipped the player"), participant_id, room_id.clone(), &app_state).await ;
                                 }else{
                                     // before proceeding with the participant, id let's see bot bids or not
+                                    tracing::info!("here we are -----------------> in bid logic") ;
                                     let bot = room.bots.clone() ;
                                     let mut bid_amount =
                                         redis_connection.new_bid(participant_id, room_id.clone(),expiry_time).await.expect("new bid unwrap failed") ;
@@ -349,12 +350,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         bid_amount,
                                         team: team_name.clone()
                                     }).unwrap()) ;
+                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+                                    tracing::info!("here we are -----------------> broadcasted the user bid now") ;
                                     if bot.list_of_teams.len() != 0 {
                                         let mut bid = room.current_bid.clone().unwrap() ;
 
                                         let future_bid = get_next_bid_increment(bid_amount, &bid) ;
+                                        tracing::info!("future bid was {}", future_bid) ;
                                         // we are taking 2 future bids because
                                         let current_player = room.current_player.clone().unwrap() ;
+                                        tracing::info!("deciding the bid by bots") ;
                                         let res = bot.decide_bid(&RatingPlayer {
                                             role: current_player.role.clone(),
                                             rating: current_player.player_rating,
@@ -363,17 +368,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         redis_connection.set_room(room_id.clone(), room).await.unwrap() ;
                                         if res.0 != "None" {
                                             // now the new bid was by bot
-                                            tracing::info!("new bid by bot") ;
+                                            tracing::info!("Bid accepted by the Bot") ;
                                             let amount =  redis_connection.new_bid(res.1, room_id.clone(),expiry_time).await.expect("new bid unwrap failed") ;
-                                            broadcast_handler(message, room_id.clone(), &app_state) .await ;
                                             message = Message::from(serde_json::to_string(&BidOutput{
                                                 bid_amount: amount,
                                                 team: res.0
                                             }).unwrap()) ;
+                                            broadcast_handler(message,room_id.clone(),&app_state).await ;
                                         }
                                     }
-                                    tracing::info!("Passing Bid") ;
-                                    broadcast_handler(message,room_id.clone(),&app_state).await ;
+
                                 }
                             }
 

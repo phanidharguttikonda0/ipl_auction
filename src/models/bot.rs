@@ -287,7 +287,7 @@ impl Bot {
         let mut rng = rand::thread_rng();
         let mut best_team: Option<(String, i32)> = None;
         let mut best_score: f32 = 0.0;
-
+        tracing::info!("inside the decide_bid function") ;
         for team in &self.list_of_teams {
             let pid = team.participant_id;
 
