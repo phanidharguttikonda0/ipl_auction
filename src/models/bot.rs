@@ -409,6 +409,10 @@ impl Bot {
     pub fn is_bot_participant(&self, participant_id: i32) -> bool {
         self.list_of_teams.iter().any(|team| team.participant_id == participant_id)
     }
+
+    pub fn get_team_name(&self, participant_id: i32) -> Option<String> {
+        self.list_of_teams.iter().find(|team| team.participant_id == participant_id).map(|team| team.team_name.clone())
+    }
 }
 
 

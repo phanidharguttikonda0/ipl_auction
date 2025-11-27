@@ -3,7 +3,7 @@ use std::sync::Arc;
 use redis::{AsyncCommands, Commands, RedisResult};
 use crate::auction::{bid_allowance_handler, broadcast_handler, send_message_to_participant};
 use crate::models::app_state::{AppState, Player};
-use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, SoldPlayer};
+use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOutput, SoldPlayer};
 
 pub struct RedisConnection {
     connection: redis::aio::MultiplexedConnection,
@@ -406,6 +406,7 @@ use redis::{Client, aio::PubSub};
 use axum::extract::ws::{Message};
 use futures_util::future::err;
 use serde_json::Error;
+use crate::models::bot::RatingPlayer;
 use crate::models::room_models::Participant;
 use crate::services::other::get_previous_team_full_name;
 
@@ -587,9 +588,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
 
                 }
 
-                let message ;
+                
                 if sold  {
-                    message = get_next_player(room_id.clone(), player_id, bid_expiry, pause_status).await ;
+                    get_next_player(room_id.clone(), player_id, bid_expiry, pause_status, &app_state).await ;
                     // if participant_id was not a bot then, there will be no problem
                     let mut room = redis_connection.get_room_details(&room_id).await?;
                     room.bots.update_acquired_count(participant_id,&previous_player.role) ;
@@ -597,10 +598,11 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     redis_connection.set_room(room_id.clone(), room).await? ;
                     tracing::info!("Updated the bots bid") ;
                 }else {
-                    message = Message::text("Auction was Paused");
+                    let message = Message::text("Auction was Paused");
+                    broadcast_handler(message,room_id.clone(), &app_state ).await ;
                 }
 
-                broadcast_handler(message,room_id.clone(), &app_state ).await ;
+                
             },
             Ok(None) => {
                 tracing::warn!("room does not exist in redis") ;
@@ -631,44 +633,72 @@ pub fn get_participant_details(participant_id: i32, participants: &Vec<AuctionPa
 }
 
 
-pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pause_status: bool) -> Message {
+pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pause_status: bool, app_state: &AppState)  {
     // we are going to get the next player and broadcasting the next player
     let next_player = player_id + 1 ;
     let mut redis_connection = RedisConnection::new().await ;
     let player: RedisResult<Player> = redis_connection.get_player(next_player).await;
 
     let mut room: AuctionRoom = redis_connection.get_room_details(&room_id).await.unwrap();
-    let mut message ;
+    
     match player {
         Ok(player) => {
-
+            let mut message ;
             tracing::info!("now updating last player id") ;
             room.last_player_id = player_id ;
             room.current_player = Some(player.clone()) ;
-            redis_connection.set_room(room_id.clone(), room).await.unwrap() ;
+            room.skip_count = HashSet::new() ;
+            redis_connection.set_room(room_id.clone(), room.clone()).await.unwrap() ;
             // we are going to update the current bid
             message = Message::text("Auction was Paused") ;
             tracing::info!("auction was paused and updated last player in redis") ;
            if !pause_status {
-               redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await.expect("unable to update current bid");
+               tracing::info!("we are going to receive bid from the decide_bid function, and updating the current bid with the next player ") ;
+
+               let mut bid = Bid::new(0, next_player, 0.0, player.base_price, false, false) ;
+               let mut participant_id_ = 0 ;
+               if room.bots.list_of_teams.len() != 0 {
+                   let result  = room.bots.decide_bid(&RatingPlayer{
+                       role: player.role.clone(),
+                       rating: player.player_rating
+                   }, player.base_price, room.skip_count) ;
+                   if result.0 != "None" {
+                       bid.bid_amount = player.base_price ;
+                       bid.participant_id = result.1 ;
+                       room.skip_count = result.2 ;
+                       redis_connection.set_room(room_id.clone(), room.clone()).await.unwrap() ;
+                       participant_id_ = result.1 ;
+                   }
+               }
+               redis_connection.update_current_bid(room_id.clone(), bid.clone(), bid_expiry).await.expect("unable to update current bid");
                tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                message = Message::from(serde_json::to_string(&player).unwrap()) ;
+               broadcast_handler(message, room_id.clone(), &app_state).await ;
+               if participant_id_ != 0 {
+                   message = Message::from(serde_json::to_string(&BidOutput{
+                       bid_amount: bid.bid_amount,
+                       team: room.bots.get_team_name(participant_id_).unwrap()
+                   }).unwrap()) ;
+                   broadcast_handler(message, room_id.clone(), &app_state).await ;
+               }
            }
         },
         Err(err) => {
             if err.kind() == redis::ErrorKind::TypeError
                 && err.to_string().contains("Player not found")
             {
-                message = Message::text("Auction Completed") ;
+                let message = Message::text("Auction Completed") ;
+                broadcast_handler(message, room_id.clone(), &app_state).await ;
                 tracing::warn!("Player with ID {} not found in Redis", next_player);
                 // Handle "not found" case separately
             } else {
                 tracing::error!("Redis error occurred: {:?}", err);
                 tracing::warn!("error occurred while getting players") ;
                 tracing::error!("error was {}", err) ;
-                message = Message::text("Error Occurred while getting players from redis") ;
+                let message = Message::text("Error Occurred while getting players from redis") ;
+                broadcast_handler(message, room_id.clone(), &app_state).await ;
             }
         }
     };
-    message
+    
 }
