@@ -337,6 +337,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
                             }else {
                                 let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
+                                if room.current_bid.clone().unwrap().participant_id == participant_id {
+                                    send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
+                                    continue;
+                                }
                                 if room.skip_count.contains(&participant_id) {
                                     tracing::info!("skipped the player, the bid is not valid any more") ;
                                     send_himself(Message::text("Bid is Invalid, you skipped the player"), participant_id, room_id.clone(), &app_state).await ;
