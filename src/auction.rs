@@ -341,8 +341,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     tracing::info!("already the highest bidder") ;
                                     send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
                                     continue;
-                                }
-                                if room.skip_count.contains(&participant_id) {
+                                } else if room.skip_count.contains(&participant_id) {
                                     tracing::info!("skipped the player, the bid is not valid any more") ;
                                     send_himself(Message::text("Bid is Invalid, you skipped the player"), participant_id, room_id.clone(), &app_state).await ;
                                 }else{
@@ -383,6 +382,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             }).unwrap()) ;
                                             broadcast_handler(message,room_id.clone(),&app_state).await ;
                                         }
+
                                     }
 
                                 }
