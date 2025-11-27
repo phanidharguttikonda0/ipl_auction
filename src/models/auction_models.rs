@@ -80,7 +80,8 @@ pub struct BidOutput {
 pub struct SoldPlayer {
     pub team_name: String,
     pub sold_price: f32,
-    pub(crate) remaining_balance: f32
+    pub(crate) remaining_balance: f32,
+    pub remaining_rtms: i16
 }
 
 #[derive(Debug,Clone, Serialize, Deserialize)]
