@@ -636,12 +636,16 @@ pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pa
     let next_player = player_id + 1 ;
     let mut redis_connection = RedisConnection::new().await ;
     let player: RedisResult<Player> = redis_connection.get_player(next_player).await;
+
+    let mut room: AuctionRoom = redis_connection.get_room_details(&room_id).await.unwrap();
     let mut message ;
     match player {
         Ok(player) => {
 
             tracing::info!("now updating last player id") ;
-            redis_connection.update_last_player_id(room_id.clone(), next_player).await.expect("unable to update last player id");
+            room.last_player_id = player_id ;
+            room.current_player = Some(player.clone()) ;
+            redis_connection.set_room(room_id.clone(), room).await.unwrap() ;
             // we are going to update the current bid
             message = Message::text("Auction was Paused") ;
             tracing::info!("auction was paused and updated last player in redis") ;

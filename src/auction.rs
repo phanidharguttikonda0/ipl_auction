@@ -285,6 +285,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                 rating: player.player_rating
                                             }, player.base_price, HashSet::new()) ;
                                             room.skip_count = result.2 ;
+                                            room.current_player = Some(player.clone()) ;
                                             if result.0 != "None" {
                                                 bid.bid_amount = player.base_price ;
                                                 bid.participant_id = result.1 ;
