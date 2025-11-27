@@ -338,6 +338,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }else {
                                 let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                                 if room.current_bid.clone().unwrap().participant_id == participant_id {
+                                    tracing::info!("already the highest bidder") ;
                                     send_himself(Message::text("You are already the highest bidder"), participant_id,room_id.clone(),&app_state).await ;
                                     continue;
                                 }
