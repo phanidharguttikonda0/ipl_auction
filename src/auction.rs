@@ -230,7 +230,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
                                         },
                                         Err(err) => {
-                                            tracing::error!("error occured while setting the pause status") ;
+                                            tracing::error!("error occurred while setting the pause status") ;
                                             tracing::error!("err was {}", err) ;
                                             send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
                                         }
