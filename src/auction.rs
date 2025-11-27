@@ -165,11 +165,24 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             hashmap.insert(participant.0, true) ;
         }
     }
+    {
+        let participants_ = participants.clone() ;
         participants.retain(|p| hashmap.contains_key(&p.id));
+        tracing::info!("we are going to send bot players as well") ;
+        let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
+        let bots = room.bots.list_of_teams ;
+        for bot_participant in bots {
+            for participant in participants_.iter() {
+                if participant.id == bot_participant.participant_id {
+                    participants.push(participant.clone()) ;
+                }// pushing bot participants
+            }
+        }
         send_himself(
             Message::from(serde_json::to_string(&participants).unwrap()),participant_id, room_id.clone(), &app_state
         ).await ; //> sending remaining participants their team name and participant_id
         tracing::info!("sent all active participants list to the participant") ;
+    }
 
 
 
