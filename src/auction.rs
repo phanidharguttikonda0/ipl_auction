@@ -336,6 +336,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                             match redis_connection.atomic_delete(&room_id).await {
                                                                 Ok(_) => {
                                                                     tracing::info!("successfully removed the room from redis") ;
+                                                                    // we are going to make sure add the completed_at field and also unsold players list from this auction
+
+                                                                    // deleting the unsold players list
+                                                                    app_state.database_connection.remove_unsold_players(&room_id).await.expect("error occurred while deleting unsold players") ;
+                                                                    // updating the set_completed_at
+                                                                    app_state.database_connection.set_completed_at(&room_id).await.expect("error while updating completed_at") ;
+
                                                                     message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
                                                                 },
                                                                 Err(err) => {
