@@ -249,9 +249,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             let mut auction_participant = AuctionParticipant::new(participant_id,team, 3) ;
                                             auction_participant.is_bot = true ;
                                             // now let's fill it in redis
-                                            room.participants.push(auction_participant) ;
+                                            room.participants.push(auction_participant.clone()) ;
                                             bot_information.participant_id = participant_id ;
                                             list_of_teams.push(bot_information) ;
+                                            broadcast_handler(Message::from(serde_json::to_string(&auction_participant).unwrap()), room_id.clone(), &app_state).await;
                                         }
                                         tracing::info!("adding list of teams to the Bot and assigning it to the room.bots") ;
                                         room.bots = Bot::new(list_of_teams) ;

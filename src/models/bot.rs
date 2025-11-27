@@ -413,17 +413,79 @@ impl Bot {
 
 
 pub fn get_each_team_user_id(team_name: &str) -> i32 {
+    let is_prod = std::env::var("PROD").unwrap().parse::<bool>().unwrap();
     match team_name {
-        "Mumbai Indians" => 69,
-        "Chennai Super Kings" => 70,
-        "Royal Challengers Bangalore" => 71,
-        "Sun Risers Hyderabad" => 72,
-        "Delhi Capitals" => 73,
-        "Kolkata Knight Riders" => 74,
-        "Lucknow Super Gaints" => 75,
-        "Punjab Kings" => 76,
-        "Gujarat Titans" => 77,
-        "Rajasthan Royals" => 78,
+        "Mumbai Indians" => {
+            if is_prod {
+                74
+            }else {
+                7
+            }
+        },
+        "Chennai Super Kings" => {
+            if is_prod {
+                75
+            }else {
+                8
+            }
+        },
+        "Royal Challengers Bangalore" => {
+            if is_prod {
+                79
+            }else {
+                12
+            }
+        },
+        "Sun Risers Hyderabad" => {
+            if is_prod {
+                76
+            }else {
+                9
+            }
+        },
+        "Delhi Capitals" => {
+            if is_prod {
+                81
+            }else {
+                14
+            }
+        },
+        "Kolkata Knight Riders" => {
+            if is_prod {
+                80
+            }else {
+                13
+            }
+        },
+        "Lucknow Super Gaints" => {
+            if is_prod {
+                82
+            }else {
+                15
+            }
+        },
+        "Punjab Kings" => {
+            if is_prod {
+                77
+            }else {
+                10
+            }
+        },
+        "Rajasthan Royals" => {
+            if is_prod {
+                78
+            }else {
+                11
+            }
+        },
+        "Gujarat Titans" => {
+            if is_prod {
+                83
+            }else {
+                16
+            }
+        },
+
         _ => panic!("Unknown team"),
     }
 }
