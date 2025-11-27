@@ -356,6 +356,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         let mut bid = room.current_bid.clone().unwrap() ;
 
                                         let future_bid = get_next_bid_increment(bid_amount, &bid) ;
+                                        let future_bid = future_bid + bid_amount ;
                                         tracing::info!("future bid was {}", future_bid) ;
                                         // we are taking 2 future bids because
                                         let current_player = room.current_player.clone().unwrap() ;
@@ -366,6 +367,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         }, bid.bid_amount, room.skip_count) ;
                                         room.skip_count = res.2 ;
                                         redis_connection.set_room(room_id.clone(), room).await.unwrap() ;
+                                        tracing::info!("The result of the decide_bot was team_name {} , participant_id {}", res.0, res.1) ;
                                         if res.0 != "None" {
                                             // now the new bid was by bot
                                             tracing::info!("Bid accepted by the Bot") ;
