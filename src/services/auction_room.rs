@@ -645,7 +645,7 @@ pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pa
         Ok(player) => {
             let mut message ;
             tracing::info!("now updating last player id") ;
-            room.last_player_id = player_id ;
+            room.last_player_id = next_player ;
             room.current_player = Some(player.clone()) ;
             room.skip_count = HashSet::new() ;
             redis_connection.set_room(room_id.clone(), room.clone()).await.unwrap() ;
