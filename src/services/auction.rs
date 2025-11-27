@@ -556,4 +556,46 @@ impl DatabaseAccess {
         }
     }
 
+    pub async fn remove_unsold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("removing unsold players as room was closing") ;
+        let result = sqlx::query("delete from unsold_players where room_id=$1")
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .execute(&self.connection).await ;
+
+        tracing::info!("query executed") ;
+        match result {
+            Ok(result) => {
+                tracing::info!("deleted the unsold players from the room_id") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("error occurred while removing unsold players {}",err) ;
+                Err(err)
+            }
+        }
+    }
+
+
+    pub async fn set_completed_at(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("setting the completed at time for the room") ;
+        let result = sqlx::query( r#"
+            UPDATE rooms
+            SET completed_at = NOW()
+            WHERE id = $1
+            "#,)
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .execute(&self.connection).await ;
+
+        match result {
+            Ok(result) =>{
+                tracing::info!("updated completed it") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("got an error, while updating the completed status room") ;
+                Err(err)
+            }
+        }
+    }
+
 }
