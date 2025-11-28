@@ -117,7 +117,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 team_name: team_name.clone(),
                 balance: 100.00,
                 total_players_brought: 0,
-                remaining_rtms: 3
+                remaining_rtms: 3,
+                is_unmuted: true
             } ;
             broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
@@ -215,8 +216,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         }else if text.to_string() == "mute" || text.to_string() == "unmute" {
                             let value = text.to_string() ;
                             tracing::info!("{} message was received", value) ;
-                            let x = value + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
+                            let x = value.clone() + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
                             broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
+                            // from now we are going to store the mute and unmute states
+                            let val ;
+                            if value == "mute" {
+                                val = false ;
+                            }else {
+                                val = true ;
+                            }
+                            redis_connection.update_mute_status(&room_id, participant_id, val).await.expect("Unable to update mute and unmute status") ;
                         }else if text.to_string() == "start" {
                             if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
                                 send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
