@@ -372,18 +372,29 @@ impl DatabaseAccess {
 
     }
 
-    pub async fn get_rooms(&self, user_id: i32) -> Result<Vec<Rooms>, sqlx::Error> {
-        let rooms = sqlx::query("SELECT
-            r.id::TEXT AS room_id,
-            r.created_at
-        FROM rooms r
-        JOIN participants p
-            ON r.id = p.room_id
-        WHERE p.user_id = $1
-        ORDER BY r.created_at DESC;
-        ")
+    pub async fn get_rooms(&self, user_id: i32, page_number: i32, per_page: i32) -> Result<Vec<Rooms>, sqlx::Error> {
+        let offset = (page_number - 1) * per_page;
+
+        let rooms = sqlx::query(
+                    "
+            SELECT
+                r.id::TEXT AS room_id,
+                r.created_at
+            FROM rooms r
+            JOIN participants p
+                ON r.id = p.room_id
+            WHERE p.user_id = $1
+            ORDER BY r.created_at DESC
+            LIMIT $2
+            OFFSET $3
+            "
+                )
             .bind(user_id)
-            .fetch_all(&self.connection).await ; // we need to get created at from the rooms table
+            .bind(per_page)   // LIMIT
+            .bind(offset)     // OFFSET
+            .fetch_all(&self.connection)
+            .await;
+
 
         match rooms {
             Ok(rooms) => {
