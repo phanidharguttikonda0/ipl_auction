@@ -8,17 +8,19 @@ pub struct AuctionRoom {
     pub participants: Vec<AuctionParticipant>,
     pub last_player_id: i32,
     pub pause: bool,
-    pub skip_count: HashMap<i32, bool> // if a participant has been skipped, or he has not clicked the skip button
+    pub skip_count: HashMap<i32, bool>, // if a participant has been skipped, or he has not clicked the skip button
+    pub room_creator_id: i32
 } //  this is where we are going to store in redis with a key as room_id and value as auction_room
 
 impl AuctionRoom {
-    pub fn new(last_player_id: i32) -> Self {
+    pub fn new(last_player_id: i32, room_creator_id: i32) -> Self {
         Self {
             current_bid: None,
             participants: Vec::new(),
             last_player_id,
             pause: false,
-            skip_count: HashMap::new()
+            skip_count: HashMap::new(),
+            room_creator_id
         }
     }
     pub fn add_participant(&mut self, participant: AuctionParticipant) {
@@ -44,7 +46,7 @@ impl AuctionParticipant {
             balance: 100.0,
             total_players_brought: 0,
             remaining_rtms,
-            is_unmuted: true
+            is_unmuted: true,
         }
     }
 }

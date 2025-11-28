@@ -189,9 +189,9 @@ impl DatabaseAccess {
     }
 
 
-    pub async fn add_sold_player(&self, room_id: String, player_id: i32, participant_id: i32, amount: f32) -> Result<(), sqlx::Error> {
+    pub async fn add_sold_player(&self, room_id: &str, player_id: i32, participant_id: i32, amount: f32) -> Result<(), sqlx::Error> {
         let result = sqlx::query("insert into sold_players (room_id, player_id, participant_id, amount) values ($1,$2,$3,$4)")
-            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
             .bind(player_id)
             .bind(participant_id)
             .bind(amount).execute(&self.connection).await ;
@@ -208,9 +208,9 @@ impl DatabaseAccess {
             }
         }
     }
-    pub async fn add_unsold_player(&self, room_id: String, player_id: i32) -> Result<(), sqlx::Error> {
+    pub async fn add_unsold_player(&self, room_id: &str, player_id: i32) -> Result<(), sqlx::Error> {
         let result = sqlx::query("insert into unsold_players (room_id, player_id) values ($1,$2)")
-            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
             .bind(player_id)
             .execute(&self.connection).await ;
         match result {
@@ -226,11 +226,10 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn update_balance(&self, room_id: String, participant_id: i32, remaining_balance: f32) -> Result<(), sqlx::Error> {
+    pub async fn update_balance(&self, participant_id: i32, remaining_balance: f32) -> Result<(), sqlx::Error> {
         tracing::info!("Executing the update_balance to update balance in psql") ;
-        let updated = sqlx::query("update participants set purse_remaining=$1 where room_id=$2 and id=$3")
+        let updated = sqlx::query("update participants set purse_remaining=$1 where id=$2")
             .bind(remaining_balance)
-            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .bind(participant_id)
             .execute(&self.connection).await ;
 

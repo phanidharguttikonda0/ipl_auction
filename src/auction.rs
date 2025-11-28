@@ -82,7 +82,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
         if  !redis_connection.check_room_existence(room_id.clone()).await.unwrap() {
             tracing::info!("creating room in redis as it doesn't exists in redis") ;
-            redis_connection.set_room(room_id.clone(), AuctionRoom::new(1)).await.expect("Room unable to Create");
+            redis_connection.set_room(room_id.clone(), AuctionRoom::new(1, participant_id)).await.expect("Room unable to Create");
         }
         let participant_exists = redis_connection.check_participant(participant_id, room_id.clone()).await ;
         let participant_exists = match participant_exists {
@@ -118,7 +118,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 balance: 100.00,
                 total_players_brought: 0,
                 remaining_rtms: 3,
-                is_unmuted: true
+                is_unmuted: true,
             } ;
             broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
@@ -227,7 +227,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }
                             redis_connection.update_mute_status(&room_id, participant_id, val).await.expect("Unable to update mute and unmute status") ;
                         }else if text.to_string() == "start" {
-                            if ! app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await.unwrap() {
+                            if ! redis_connection.is_creator(&room_id, participant_id).await {
                                 send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
                             }else{
                                 if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
@@ -324,10 +324,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             // when we click on end we are getting only exit as the message without any reason
                             // check whether he was the creator of the room
 
-                            let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
-                            match result {
-                                Ok(result) => {
-                                    if !result {
+                                    if ! redis_connection.is_creator(&room_id, participant_id).await {
                                         send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                     }else{
                                         // second, check whether all the participants having least 15 players in their squad
@@ -380,29 +377,18 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         broadcast_handler(message,room_id.clone(),&app_state).await ;
                                     }
 
-                                },
-                                Err(err) => {
-                                    tracing::info!("getting error while is room_creator") ;
-                                    send_himself(Message::text("Technical Issue"), participant_id, room_id.clone(), &app_state).await ;
-                                }
-                            }
-
-
                         }else if text.to_string() == "pause" {
 
                             // we are going to pause the auction, such that when clicked create again, going to start from the last player
-                            let result = app_state.database_connection.is_room_creator(participant_id, room_id.clone()).await ;
-                            match result {
-                                Ok(result) => {
-                                    if result {
+                                    if ! redis_connection.is_creator(&room_id, participant_id).await {
                                         // we are going to pause auction after the current bid
                                         match redis_connection.set_pause_status(&room_id, true).await {
                                             Ok(_) => {
-                                                tracing::info!("sucessfully set the status to pause") ;
+                                                tracing::info!("successfully set the status to pause") ;
                                                 send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id.clone(), &app_state).await ;
                                             },
                                             Err(err) => {
-                                                tracing::error!("error occured while setting the pause status") ;
+                                                tracing::error!("error occurred while setting the pause status") ;
                                                 tracing::error!("err was {}", err) ;
                                                 send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
                                             }
@@ -410,12 +396,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     }else {
                                         send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                     }
-                                },
-                                Err(err) => {
-                                    tracing::error!("got error while check is the creator") ;
-                                    tracing::error!("{}", err) ;
-                                }
-                            };
 
                         }else if text.to_string() == "rtm-accept" { // need to check RTM , why even timer was there it was failing and also need to check whether the RTM timer was the expiry time
                             // can only be called, if the key was rtms
