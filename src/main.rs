@@ -1,8 +1,9 @@
 use std::fmt::format;
 use std::sync::{Arc};
 use std::time::Duration;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 use axum::{http, middleware, Router};
+use axum::extract::ws::Message;
 use axum::http::{header, Method};
 use axum::routing::{get, post};
 use dotenv::dotenv;
@@ -17,7 +18,9 @@ use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
 use tower_http::cors::{CorsLayer, Any};
 use tower::ServiceBuilder;
+use crate::models::background_db_tasks::DBCommands;
 use crate::routes::admin_routes::admin_routes;
+use crate::services::background_db_tasks_runner::background_tasks_executor;
 
 mod models;
 mod auction;
@@ -48,10 +51,12 @@ async fn main() {
 
 
 async fn routes() -> Router {
+    let (tx, mut rx) = mpsc::unbounded_channel::<DBCommands>();
     let state = Arc::new(
         AppState {
             rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
             database_connection: Arc::from(DatabaseAccess::new().await),
+            database_execute_task: tx
         }
     ) ;
     let redis_url = std::env::var("REDIS_URL").unwrap();
@@ -66,6 +71,12 @@ async fn routes() -> Router {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+
+    let state_ = state.clone() ;
+    tokio::spawn(async move {
+        background_tasks_executor(state_, rx).await ;
+    }) ;
+
     // Configure CORS
     let cors = CorsLayer::new()
         .allow_origin([

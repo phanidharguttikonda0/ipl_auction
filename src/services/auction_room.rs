@@ -391,7 +391,7 @@ impl RedisConnection {
             }
         }
     }
-    
+
     pub async fn update_mute_status(&mut self, room_id: &str, participant_id: i32, unmute: bool) -> Result<(), redis::RedisError> {
         tracing::info!("updating mute status redis function was called") ;
         let mut room = self.get_room_details(room_id).await?;
@@ -404,6 +404,16 @@ impl RedisConnection {
         Ok(())
     }
 
+
+    pub async fn is_creator(&mut self, room_id: &str, participant_id: i32) -> bool {
+        let room = self.get_room_details(room_id).await.expect("unable to get room details");
+        if room.room_creator_id == participant_id {
+            true
+        }else {
+            false
+        }
+    }
+
 }
 
 
@@ -414,6 +424,8 @@ use redis::{Client, aio::PubSub};
 use axum::extract::ws::{Message};
 use futures_util::future::err;
 use serde_json::Error;
+use crate::models;
+use crate::models::background_db_tasks::DBCommands;
 use crate::models::room_models::Participant;
 use crate::services::other::get_previous_team_full_name;
 
@@ -461,18 +473,28 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         // we are going to update the rtms of the user
                        // redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
                         // we are going to update in the sql as well.
-                        app_state.database_connection.update_remaining_rtms(participant_id).await.unwrap();
+                        app_state.database_execute_task.send(DBCommands::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
+                            id: bid.participant_id
+                        })).expect("Error while sending participant id for updating rtms to a unbounded channel") ;
                         res.participants[details.1 as usize].remaining_rtms -= 1 ;
                         remaining_rtms = res.participants[details.1 as usize].remaining_rtms ;
                     }
                     // we are going to sell the player to the person,
                     tracing::info!("player was a sold player") ;
-                    app_state.database_connection.add_sold_player(room_id.clone(), bid.player_id, bid.participant_id, bid.bid_amount).await.unwrap();
+                    app_state.database_execute_task.send(DBCommands::PlayerSold(models::background_db_tasks::SoldPlayer {
+                        room_id: room_id.clone(),
+                        player_id: bid.player_id,
+                        participant_id: bid.participant_id,
+                        bid_amount: bid.bid_amount
+                    })).expect("Error While adding Player sold to the unbounded channel") ;
                     res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
                     res.participants[details.1 as usize].total_players_brought += 1 ;
                     let remaining_balance = res.participants[details.1 as usize].balance ;
                     // updating the participant balance in the participant table
-                    app_state.database_connection.update_balance(room_id.clone(), bid.participant_id, remaining_balance).await.unwrap() ;
+                    app_state.database_execute_task.send(DBCommands::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
+                        participant_id: bid.participant_id,
+                        remaining_balance
+                    })).expect("Error While update balance to the unbounded channel") ;
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
                     res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
@@ -570,13 +592,24 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             // -------------------- over here we need to add the player to the sold player list with room-id and player-id
                             if current_bid.bid_amount != 0.0 {
                                 tracing::info!("player was a sold player") ;
-                                app_state.database_connection.add_sold_player(room_id.clone(), current_bid.player_id, current_bid.participant_id, current_bid.bid_amount).await.unwrap();
+                                app_state.database_execute_task.send(DBCommands::PlayerSold(models::background_db_tasks::SoldPlayer {
+                                    room_id: room_id.clone(),
+                                    player_id: current_bid.player_id,
+                                    participant_id: current_bid.participant_id,
+                                    bid_amount: current_bid.bid_amount
+                                })).expect("Error While adding Player sold to the unbounded channel") ;
                                 // updating the participant balance in the participant table
-                                app_state.database_connection.update_balance(room_id.clone(), current_bid.participant_id, remaining_balance).await.unwrap() ;
+                                app_state.database_execute_task.send(DBCommands::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
+                                    participant_id: current_bid.participant_id,
+                                    remaining_balance
+                                })).expect("Error While update balance to the unbounded channel") ;
                                 tracing::info!("successfully updated the balance in the psql") ;
                             }else {
                                 tracing::info!("player was an unsold player") ;
-                                app_state.database_connection.add_unsold_player(room_id.clone(), current_bid.player_id).await.unwrap();
+                                app_state.database_execute_task.send(DBCommands::PlayerUnSold(models::background_db_tasks::UnSoldPlayer {
+                                    room_id: room_id.clone(),
+                                    player_id: current_bid.player_id
+                                })).expect("Error While adding Player Unsold to the unbounded channel") ;
                             }
                             sold = true ;
                     }
