@@ -243,11 +243,11 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn update_room_status(&self, room_id: String, status: &str) -> Result<(), sqlx::Error> {
+    pub async fn update_room_status(&self, room_id: &str, status: &str) -> Result<(), sqlx::Error> {
         tracing::info!("Executing the update_room_status to update status in psql") ;
         let updated = sqlx::query("update rooms set status=$1::room_status  where id=$2")
             .bind(status)
-            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
         .execute(&self.connection).await ;
 
         match updated {

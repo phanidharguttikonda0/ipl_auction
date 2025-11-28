@@ -20,9 +20,15 @@ pub struct BalanceUpdate {
     pub remaining_balance: f32
 }
 
+pub struct RoomStatus {
+    pub room_id: String,
+    pub status: String
+}
+
 pub enum DBCommands {
     UpdateRemainingRTMS(ParticipantId),
     PlayerSold(SoldPlayer),
     PlayerUnSold(UnSoldPlayer),
     BalanceUpdate(BalanceUpdate),
+    UpdateRoomStatus(RoomStatus),
 }

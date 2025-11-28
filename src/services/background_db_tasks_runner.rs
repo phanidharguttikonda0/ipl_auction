@@ -51,6 +51,17 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                     }
                 }
             },
+            DBCommands::UpdateRoomStatus(room_status) => {
+                tracing::info!("Room status update was being executed as background task") ;
+                match app_state.database_connection.update_room_status(&room_status.room_id, &room_status.status).await {
+                    Ok(res) => {
+                        tracing::info!("successfully executed update room-status") ;
+                    },
+                    Err(err) => {
+                        tracing::error!("error for room-status updating {}", err) ;
+                    }
+                }
+            }
         }
     }
 }

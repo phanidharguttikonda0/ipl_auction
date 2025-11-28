@@ -12,7 +12,9 @@ use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, BidOut
 use crate::services::auction_room::{get_participant_details, RedisConnection};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
+use crate::models;
 use crate::models::authentication_models::Claims;
+use crate::models::background_db_tasks::DBCommands;
 use crate::models::room_models::Participant;
 use crate::models::webRTC_models::SignalingMessage;
 use crate::services::other::get_previous_team_full_name;
@@ -261,12 +263,17 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     let message ;
                                     match player {
                                         Ok(player) => {
+                                            if player.id == 1 {
+                                                // // changing room-status
+                                                app_state.database_execute_task.send(DBCommands::UpdateRoomStatus(models::background_db_tasks::RoomStatus{
+                                                    room_id: room_id.clone(),
+                                                    status: "in_progress".to_string(),
+                                                })).expect("Error while sending room_status to a unbounded channel") ;
+                                            }
                                             message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
                                             redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
-                                            // changing room-status
-                                            app_state.database_connection.update_room_status(room_id.clone(), "in_progress").await.unwrap() ;
                                         } ,
                                         Err(err) => {
                                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
@@ -335,7 +342,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                 if res {
                                                     // when front-end has disconnected automatically it's going to be the end.
                                                     // we are going to change the state of the auction to completed such that this room get's invalid
-                                                    match app_state.database_connection.update_room_status(room_id.clone(), "completed").await {
+                                                    match app_state.database_connection.update_room_status(&room_id, "completed").await {
                                                         Ok(result) => {
                                                             tracing::info!("room status changed to completed") ;
                                                             // here we are going to remove the data from redis
