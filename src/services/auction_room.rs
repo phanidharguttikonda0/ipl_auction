@@ -391,6 +391,18 @@ impl RedisConnection {
             }
         }
     }
+    
+    pub async fn update_mute_status(&mut self, room_id: &str, participant_id: i32, unmute: bool) -> Result<(), redis::RedisError> {
+        tracing::info!("updating mute status redis function was called") ;
+        let mut room = self.get_room_details(room_id).await?;
+        let mut participant = get_participant_details(participant_id, &room.participants).unwrap() ;
+        tracing::info!("got the participant details from the mute status") ;
+        participant.0.is_unmuted = unmute ;
+        room.participants[participant.1 as usize] = participant.0 ; // updated the participant mute or unmute status
+        let room = serde_json::to_string(&room).unwrap();
+        self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in update_mute_status");
+        Ok(())
+    }
 
 }
 
