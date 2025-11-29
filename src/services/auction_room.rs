@@ -446,6 +446,13 @@ impl RedisConnection {
         self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in increment_foreign_player_count") ;
         Ok(())
     }
+    
+    pub async fn add_current_player(&mut self, room_id: &str, player: Player)  {
+        tracing::info!("adding current player redis function was called") ;
+        let mut room = self.get_room_details(room_id).await.expect("unable to get room details") ;
+        room.current_player = Some(player) ;
+        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in add_current_player") ;
+    }
 
 }
 

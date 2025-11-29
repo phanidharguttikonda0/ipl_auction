@@ -270,7 +270,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                     room_id: room_id.clone(),
                                                     status: "in_progress".to_string(),
                                                 })).expect("Error while sending room_status to a unbounded channel") ;
+                                                
+                                                redis_connection.add_current_player(&room_id, player.clone()).await ;
                                             }
+                                            
                                             message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
