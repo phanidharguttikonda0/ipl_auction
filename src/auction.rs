@@ -229,7 +229,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }
                             redis_connection.update_mute_status(&room_id, participant_id, val).await.expect("Unable to update mute and unmute status") ;
                         }else if text.to_string() == "start" {
-                            if ! redis_connection.is_creator(&room_id, participant_id).await {
+                            if !redis_connection.is_creator(&room_id, participant_id).await {
                                 send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
                             }else{
                                 if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
@@ -331,7 +331,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             // when we click on end we are getting only exit as the message without any reason
                             // check whether he was the creator of the room
 
-                                    if ! redis_connection.is_creator(&room_id, participant_id).await {
+                                    if !redis_connection.is_creator(&room_id, participant_id).await {
                                         send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                     }else{
                                         // second, check whether all the participants having least 15 players in their squad
@@ -387,7 +387,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         }else if text.to_string() == "pause" {
 
                             // we are going to pause the auction, such that when clicked create again, going to start from the last player
-                                    if ! redis_connection.is_creator(&room_id, participant_id).await {
+                                    if redis_connection.is_creator(&room_id, participant_id).await {
                                         // we are going to pause auction after the current bid
                                         match redis_connection.set_pause_status(&room_id, true).await {
                                             Ok(_) => {
