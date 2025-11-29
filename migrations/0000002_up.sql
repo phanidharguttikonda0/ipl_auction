@@ -13,6 +13,7 @@ ALTER TABLE unsold_players
     ADD COLUMN id SERIAL;
 ALTER TABLE participants
     ADD COLUMN remaining_rtms smallint DEFAULT 3 NOT NULL ; -- 3 RTMs per team by default
-ALTER TABLE players
-    ADD COLUMN player_rating INTEGER
-        CHECK (player_rating >= 0 AND player_rating <= 100);
+-- ALTER TABLE players
+--     ADD COLUMN player_rating INTEGER
+--         CHECK (player_rating >= 0 AND player_rating <= 100);
+ALTER TABLE players ADD COLUMN is_indian BOOLEAN default true;
