@@ -276,7 +276,15 @@ impl RedisConnection {
             Ok(value) => {
                 tracing::info!("let's get the value , whether it was null or it contains room") ;
                 match serde_json::from_str::<AuctionRoom>(&value) {
-                    Ok(val) => Ok(val.current_player.unwrap().id),
+                    Ok(val) => {
+                        match val.current_player {
+                            Some(val) => Ok(val.id),
+                            None => {
+                                tracing::warn!("no current player") ;
+                                Ok(1)
+                            }
+                        }
+                    },
                     Err(err) => {
                         tracing::warn!("no current player") ;
                         Ok(1)
