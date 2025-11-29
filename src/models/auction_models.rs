@@ -1,23 +1,24 @@
 use std::collections::HashMap;
 use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
+use crate::models::app_state::Player;
 
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
 pub struct AuctionRoom {
     pub current_bid: Option<Bid>,
     pub participants: Vec<AuctionParticipant>,
-    pub last_player_id: i32,
+    pub current_player: Option<Player>,
     pub pause: bool,
     pub skip_count: HashMap<i32, bool>, // if a participant has been skipped, or he has not clicked the skip button
     pub room_creator_id: i32
 } //  this is where we are going to store in redis with a key as room_id and value as auction_room
 
 impl AuctionRoom {
-    pub fn new(last_player_id: i32, room_creator_id: i32) -> Self {
+    pub fn new(room_creator_id: i32) -> Self {
         Self {
             current_bid: None,
             participants: Vec::new(),
-            last_player_id,
+            current_player: None,
             pause: false,
             skip_count: HashMap::new(),
             room_creator_id
@@ -36,6 +37,7 @@ pub struct AuctionParticipant {
     pub total_players_brought: u8,
     pub remaining_rtms: i16,
     pub is_unmuted: bool,
+    pub foreign_players_brought: u8
 }
 
 impl AuctionParticipant {
@@ -47,6 +49,7 @@ impl AuctionParticipant {
             total_players_brought: 0,
             remaining_rtms,
             is_unmuted: true,
+            foreign_players_brought: 0
         }
     }
 }
@@ -85,7 +88,8 @@ pub struct SoldPlayer {
     pub team_name: String,
     pub sold_price: f32,
     pub(crate) remaining_balance: f32,
-    pub remaining_rtms: i16
+    pub remaining_rtms: i16,
+    pub foreign_players_brought: u8
 }
 
 #[derive(Debug,Clone, Serialize, Deserialize)]

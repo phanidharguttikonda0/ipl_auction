@@ -84,7 +84,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
         if  !redis_connection.check_room_existence(room_id.clone()).await.unwrap() {
             tracing::info!("creating room in redis as it doesn't exists in redis") ;
-            redis_connection.set_room(room_id.clone(), AuctionRoom::new(1, participant_id)).await.expect("Room unable to Create");
+            redis_connection.set_room(room_id.clone(), AuctionRoom::new(participant_id)).await.expect("Room unable to Create");
         }
         let participant_exists = redis_connection.check_participant(participant_id, room_id.clone()).await ;
         let participant_exists = match participant_exists {
@@ -121,6 +121,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 total_players_brought: 0,
                 remaining_rtms: 3,
                 is_unmuted: true,
+                foreign_players_brought: 0
             } ;
             broadcast_handler(Message::from(serde_json::to_string(&participant).unwrap()), room_id.clone(), &app_state).await;
             tracing::info!("new member has joined in the room {} and with team {}", room_id, team_name) ;
@@ -246,12 +247,12 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             send_himself(Message::text("Technical Problem"), participant_id, room_id.clone(), &app_state).await ;
                                         }
                                     } ;
-                                    let last_player_id = redis_connection.last_player_id(room_id.clone()).await ;
+                                    let current_player_id = redis_connection.current_player_id(room_id.clone()).await ;
                                     tracing::info!("---------------------------------------") ;
-                                    let last_player_id = match last_player_id {
-                                        Ok(last_player_id) => {
-                                            tracing::info!("got the last player-id as {}", last_player_id) ;
-                                            last_player_id
+                                    let current_player_id = match current_player_id {
+                                        Ok(current_player_id) => {
+                                            tracing::info!("got the last player-id as {}", current_player_id) ;
+                                            current_player_id
                                         },
                                         Err(err) => {
                                             tracing::error!("error while getting last player-id was {}", err) ;
@@ -259,7 +260,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         }
                                     } ;
                                     // we are going to return the first player from the auction
-                                    let player = redis_connection.get_player(last_player_id).await ;
+                                    let player = redis_connection.get_player(current_player_id, &room_id).await ;
                                     let message ;
                                     match player {
                                         Ok(player) => {
@@ -269,7 +270,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                     room_id: room_id.clone(),
                                                     status: "in_progress".to_string(),
                                                 })).expect("Error while sending room_status to a unbounded channel") ;
+                                                
+                                                redis_connection.add_current_player(&room_id, player.clone()).await ;
                                             }
+                                            
                                             message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
@@ -295,7 +299,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             if !redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                 tracing::info!("as the key doesn't exists we are not going to take this bid") ;
                                 send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
-                            }else {
+                            } else if !is_foreigner_allowed(participant_id, &room_id, &mut redis_connection).await {
+                                tracing::info!("foreign players has reached max for the participant, so bid becomes invalid") ;
+                                send_himself(Message::text("You reached Foreign Player limit"), participant_id, room_id.clone(), &app_state).await ;
+                            } else {
                                 let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                                 if room.skip_count.contains_key(&participant_id) {
                                     tracing::info!("skipped the player, the bid is not valid any more") ;
@@ -404,7 +411,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                     }
 
-                        }else if text.to_string() == "rtm-accept" { // need to check RTM , why even timer was there it was failing and also need to check whether the RTM timer was the expiry time
+                        }else if text.to_string() == "rtm-accept" { // need to check RTM, why even timer was there it was failing and also need to check whether the RTM timer was the expiry time
                             // can only be called, if the key was rtms
                             if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() {
                                 tracing::info!("rtm was being accepted") ;
@@ -439,10 +446,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 let mut bid = room.current_bid.unwrap() ;
                                 let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
 
-                                // now we are going to check whether the specific participant, has the authority to use the rtm, means the current player
+                                // now we are going to check whether the specific participant has the authority to use the rtm, means the current player
                                 // previous team should be the participant playing team
                                 let rtm_placer_participant = get_participant_details(participant_id, &room.participants).unwrap() ;
-                                let previous_player = redis_connection.get_player(bid.player_id).await.unwrap() ;
+                                let previous_player = redis_connection.get_player(bid.player_id, &room_id).await.unwrap() ;
                                 let full_team_name = get_previous_team_full_name(&previous_player.previous_team);
                                 let current_participant_team = rtm_placer_participant.0.team_name ;
 
@@ -658,6 +665,20 @@ pub async fn bid_allowance_handler(room_id: String, current_bid: f32, balance: f
         false
     }
 }
+
+pub async fn is_foreigner_allowed(participant_id: i32, room_id: &str, redis_connection: &mut RedisConnection) -> bool {
+    tracing::info!("checking whether foreigner player is allowed or not") ;
+    let room = redis_connection.get_room_details(room_id).await.unwrap() ;
+    let participant = get_participant_details(participant_id, &room.participants).unwrap() ;
+    if participant.0.foreign_players_brought < 8 {
+        true
+    }else{
+        false
+    }
+}
+/*
+    while generating use of RTM also , we need to make sure that the previous team has the ability to get foreign player or not.
+*/
 
 pub async fn send_message_to_participant(participant_id: i32, message: String, room_id: String, state: &AppState) {
     let mut rooms = state.rooms.read().await;
