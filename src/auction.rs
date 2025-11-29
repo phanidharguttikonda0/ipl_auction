@@ -270,10 +270,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                     room_id: room_id.clone(),
                                                     status: "in_progress".to_string(),
                                                 })).expect("Error while sending room_status to a unbounded channel") ;
-                                                
+
                                                 redis_connection.add_current_player(&room_id, player.clone()).await ;
                                             }
-                                            
+
                                             message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
@@ -295,15 +295,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 If previously the same participant has send the bid, then that shouldn't be considered
 
                             */
+                            let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                             // if this key exists in the redis then only bids takes place
                             if !redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                 tracing::info!("as the key doesn't exists we are not going to take this bid") ;
                                 send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
-                            } else if !is_foreigner_allowed(participant_id, &room_id, &mut redis_connection).await {
+                            } else if (!room.current_player.clone().unwrap().is_indian) && (!is_foreigner_allowed(participant_id, &room_id, &mut redis_connection).await) {
                                 tracing::info!("foreign players has reached max for the participant, so bid becomes invalid") ;
                                 send_himself(Message::text("You reached Foreign Player limit"), participant_id, room_id.clone(), &app_state).await ;
                             } else {
-                                let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                                 if room.skip_count.contains_key(&participant_id) {
                                     tracing::info!("skipped the player, the bid is not valid any more") ;
                                     send_himself(Message::text("Bid is Invalid, you skipped the player"), participant_id, room_id.clone(), &app_state).await ;
@@ -650,7 +650,7 @@ pub async fn send_himself(msg: Message, participant_id: i32,room_id: String, sta
             if let Ok(_) = sender.1.send(msg.clone()) {
                 tracing::info!("Message sent to participant successfully");
             }else{
-                tracing::info!("Failed to send message to participant");
+                tracing::error!("Failed to send message to participant");
             }
         }
     }
