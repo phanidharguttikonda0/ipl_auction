@@ -446,7 +446,7 @@ impl RedisConnection {
         self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in increment_foreign_player_count") ;
         Ok(())
     }
-    
+
     pub async fn add_current_player(&mut self, room_id: &str, player: Player)  {
         tracing::info!("adding current player redis function was called") ;
         let mut room = self.get_room_details(room_id).await.expect("unable to get room details") ;
@@ -507,7 +507,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("the expired key was the RTM one") ;
                     // as it is expired, we are going to sell the player to the last bidded person
                     let bid = res.current_bid.clone().unwrap() ;
-                    let details = get_participant_details(participant_id, &res.participants).unwrap() ;
+                    let mut details = get_participant_details(participant_id, &res.participants).expect("error getting participant details from increment_foreign_player_count") ;
                     let mut remaining_rtms = res.participants[details.1 as usize].remaining_rtms ;
                     if bid.is_rtm {
                         // we are going to update the rtms of the user
@@ -539,13 +539,12 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("updating in the redis along with the balance and bid") ;
                     res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
                     res.skip_count = HashMap::new() ; // making sure no previous skips
-                    let mut foreign_players_brought = 0 ;
-                    if !res.current_player.clone().unwrap().is_indian {
-                        let mut participant = get_participant_details(participant_id, &res.participants).expect("error getting participant details from increment_foreign_player_count") ;
-                        participant.0.foreign_players_brought += 1 ;
-                        foreign_players_brought = participant.0.foreign_players_brought ; // getting updated foreign_players count
-                        res.participants[participant.1 as usize] = participant.0 ;
 
+                    let mut foreign_players_brought = details.0.foreign_players_brought ;
+                    if !res.current_player.clone().unwrap().is_indian {
+                        details.0.foreign_players_brought += 1 ;
+                        foreign_players_brought = details.0.foreign_players_brought ; // getting updated foreign_players count
+                        res.participants[details.1 as usize] = details.0 ;
                     }
                     let res = serde_json::to_string(&res).unwrap();
                     conn.set::<_,_,()>(&room_id, res).await?;
@@ -614,18 +613,17 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             tracing::info!("length of room {}", length) ;
                             let mut remaining_balance: f32 = 0.0 ;
                             if current_bid.clone().bid_amount != 0.0 {
-                                let details = get_participant_details(participant_id, &res.participants).unwrap() ;
+                                let mut details = get_participant_details(participant_id, &res.participants).expect("error getting participant details from increment_foreign_player_count") ;
                                 res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
                                 res.participants[details.1 as usize].total_players_brought += 1 ;
                                 remaining_balance = res.participants[details.1 as usize].balance ;
                                 res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
-                                let mut foreign_players_brought = 0 ;
+                                let mut foreign_players_brought = details.0.foreign_players_brought ;
                                 if !res.current_player.clone().unwrap().is_indian {
                                     tracing::info!("he is a foreign player, so updating foreign player count") ;
-                                    let mut participant = get_participant_details(participant_id, &res.participants).expect("error getting participant details from increment_foreign_player_count") ;
-                                    participant.0.foreign_players_brought += 1 ;
-                                    foreign_players_brought = participant.0.foreign_players_brought ;
-                                    res.participants[participant.1 as usize] = participant.0 ;
+                                    details.0.foreign_players_brought += 1 ;
+                                    foreign_players_brought = details.0.foreign_players_brought ;
+                                    res.participants[details.1 as usize] = details.0 ;
                                 }
                                 message= Message::from(
                                     serde_json::to_string(&SoldPlayer {
