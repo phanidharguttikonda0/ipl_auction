@@ -219,7 +219,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         }else if text == "mute" || text == "unmute" {
                             let value = text ;
                             tracing::info!("{} message was received", value) ;
-                            let x = team_name.to_string() + &value.clone() + "ed" ; // the message will be mute-12, means participant 12 has muted himself
+                            let x = team_name.to_string()+ " " + &value.clone() + "d" ; // the message will be mute-12, means participant 12 has muted himself
                             broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
                             // from now we are going to store the mute and unmute states
                             let val ;
@@ -438,7 +438,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                           tracing::info!("cancelling the rtm instantly, where the previous team , don't want to use the rtm for the current player") ;
                             redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
                             let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
-                            redis_connection.update_current_bid(&room_id, room.current_bid.unwrap(), 1).await.unwrap() ;
+                            let mut current_bid = room.current_bid.unwrap() ;
+                            current_bid.is_rtm = false ;
+                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
                         } else if text.contains("rtm") {
                             tracing::info!("rtm was accepted with the following {}",text) ;
                             // we need to check
