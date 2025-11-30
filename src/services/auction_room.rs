@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use redis::{AsyncCommands, Commands, RedisResult};
 use crate::auction::{bid_allowance_handler, broadcast_handler, is_foreigner_allowed, send_message_to_participant};
@@ -37,7 +37,7 @@ impl RedisConnection {
         Ok(value.is_some())
     }
 
-    pub async fn update_current_bid(&mut self, room_id: String, bid: Bid, expiry: u8) -> Result<String, redis::RedisError> {
+    pub async fn update_current_bid(&mut self, room_id: &str, bid: Bid, expiry: u8) -> Result<String, redis::RedisError> {
         let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
         let timer_key;
         if bid.is_rtm {
@@ -51,7 +51,9 @@ impl RedisConnection {
                 value.current_bid  = Some(bid) ;
                 let value = serde_json::to_string(&value).unwrap();
                 self.connection.set::<_, _, ()>(room_id.clone(), value).await.expect("unable to set the updated value in new_bid");
-                 self.connection.set_ex::<_,_,()>(&timer_key, "active", expiry as u64).await.expect("unable to set the expiry");
+                 if expiry != 0 {
+                     self.connection.set_ex::<_,_,()>(&timer_key, "active", expiry as u64).await.expect("unable to set the expiry");
+                 }// we can pass expiry as 0  if we want to just update the bid with out any timer
                 Ok("Bid updated and TTL reset".to_string())
             },
             Err(e) => {
@@ -359,17 +361,18 @@ impl RedisConnection {
         }
     }
 
-    pub async fn update_remaining_rtms(&mut self, room_id: String, participant_id: i32) -> Result<(), redis::RedisError> {
+    pub async fn update_remaining_rtms(&mut self, room_id: &str, participant_id: i32) -> Result<i16, redis::RedisError> {
         tracing::info!("updating remaining rtms redis function was called") ;
-        let result: RedisResult<String> = self.connection.get(&room_id).await ;
+        let result: RedisResult<String> = self.connection.get(room_id).await ;
         match result {
             Ok(value) => {
                 let mut room: AuctionRoom = serde_json::from_str(&value).unwrap();
                 let participant = get_participant_details(participant_id, &room.participants).unwrap();
                 room.participants[participant.1 as usize].remaining_rtms -= 1 ;
+                let remaining_rtms = room.participants[participant.1 as usize].remaining_rtms ;
                 // we are going to set the updated value in the redis
                 self.connection.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_remaining_rtms") ;
-                Ok(())
+                Ok(remaining_rtms)
             },
             Err(e) => {
                 tracing::error!("got error while updating remaining rtms redis function was called") ;
@@ -454,6 +457,22 @@ impl RedisConnection {
         self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in add_current_player") ;
     }
 
+    pub async fn update_balance_total_players_brought(&mut self, room_id: &str, participant_id: i32, new_balance: f32) -> Result<u8, redis::RedisError> {
+        let mut room = self.get_room_details(room_id).await.expect("error getting room details from update_balance_total_players_brought") ;
+        let mut participant = get_participant_details(participant_id, &room.participants).expect("error getting participant details from update_balance_total_players_brought") ;
+        room.participants[participant.1 as usize].balance = new_balance ;
+        room.participants[participant.1 as usize].total_players_brought += 1 ;
+        let total_players_brought = room.participants[participant.1 as usize].total_players_brought ;
+        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_balance_total_players_brought") ;
+        Ok(total_players_brought)
+    }
+
+    pub async fn update_skip_count(&mut self, room_id: &str, skip_count: HashMap<i32,bool>) -> Result<(), redis::RedisError> {
+        let mut room = self.get_room_details(room_id).await.expect("error getting room details from update_skip_count") ;
+        room.skip_count = skip_count ;
+        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_skip_count") ;
+        Ok(())
+    }
 }
 
 
@@ -504,6 +523,9 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                 let previous_player = redis_connection.get_player(player_id, &room_id).await? ;
                 let pause_status = res.pause ;
                 if is_rtm == "rtms" {
+
+                    // from know all redis operation will be done with out any data races , because
+
                     tracing::info!("the expired key was the RTM one") ;
                     // as it is expired, we are going to sell the player to the last bidded person
                     let bid = res.current_bid.clone().unwrap() ;
@@ -516,8 +538,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         app_state.database_execute_task.send(DBCommands::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
                             id: bid.participant_id
                         })).expect("Error while sending participant id for updating rtms to a unbounded channel") ;
-                        res.participants[details.1 as usize].remaining_rtms -= 1 ;
-                        remaining_rtms = res.participants[details.1 as usize].remaining_rtms ;
+                        remaining_rtms = redis_connection.update_remaining_rtms(&room_id, participant_id).await? ;
                     }
                     // we are going to sell the player to the person,
                     tracing::info!("player was a sold player") ;
@@ -527,9 +548,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         participant_id: bid.participant_id,
                         bid_amount: bid.bid_amount
                     })).expect("Error While adding Player sold to the unbounded channel") ;
-                    res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
-                    res.participants[details.1 as usize].total_players_brought += 1 ;
-                    let remaining_balance = res.participants[details.1 as usize].balance ;
+                    let remaining_balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
+                    let total_players_brought = redis_connection.update_balance_total_players_brought(&room_id, participant_id,remaining_balance).await.expect("error while updating balance and total players brought") ;
                     // updating the participant balance in the participant table
                     app_state.database_execute_task.send(DBCommands::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
                         participant_id: bid.participant_id,
@@ -537,17 +557,20 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     })).expect("Error While update balance to the unbounded channel") ;
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
-                    res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
-                    res.skip_count = HashMap::new() ; // making sure no previous skips
-
+                    let bid = (Bid::new(0, 0,0.0,0.0, false, false)) ;
+                    redis_connection.update_skip_count(&room_id, HashMap::new()).await.expect("") ;
+                    // bid expiry zero means it will not use timer just update the current bid value
+                    redis_connection.update_current_bid(&room_id, bid, 0).await.expect("") ;
                     let mut foreign_players_brought = details.0.foreign_players_brought ;
                     if !res.current_player.clone().unwrap().is_indian {
-                        details.0.foreign_players_brought += 1 ;
-                        foreign_players_brought = details.0.foreign_players_brought ; // getting updated foreign_players count
-                        res.participants[details.1 as usize] = details.0 ;
+                        // details.0.foreign_players_brought += 1 ;
+                        // foreign_players_brought = details.0.foreign_players_brought ; // getting updated foreign_players count
+                        // res.participants[details.1 as usize] = details.0 ;
+                        redis_connection.increment_foreign_player_count(&room_id, participant_id).await?;
+                        foreign_players_brought += 1 ;
                     }
-                    let res = serde_json::to_string(&res).unwrap();
-                    conn.set::<_,_,()>(&room_id, res).await?;
+                    // let res = serde_json::to_string(&res).unwrap();
+                    // conn.set::<_,_,()>(&room_id, res).await?;
 
                     sold = true ;
                     
@@ -614,23 +637,22 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             let mut remaining_balance: f32 = 0.0 ;
                             if current_bid.clone().bid_amount != 0.0 {
                                 let mut details = get_participant_details(participant_id, &res.participants).expect("error getting participant details from increment_foreign_player_count") ;
-                                res.participants[details.1 as usize].balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
-                                res.participants[details.1 as usize].total_players_brought += 1 ;
-                                remaining_balance = res.participants[details.1 as usize].balance ;
-                                res.current_bid = Some(Bid::new(0, 0,0.0,0.0, false, false)) ;
+                                remaining_balance = res.participants[details.1 as usize].balance -  res.current_bid.clone().unwrap().bid_amount;
+                                let total_players_brought = redis_connection.update_balance_total_players_brought(&room_id, participant_id,remaining_balance).await.expect("error while updating balance and total players brought") ;
+                                let bid = Bid::new(0, 0,0.0,0.0, false, false) ;
+                                redis_connection.update_current_bid(&room_id, bid, 0).await.expect("") ;
                                 let mut foreign_players_brought = details.0.foreign_players_brought ;
                                 if !res.current_player.clone().unwrap().is_indian {
                                     tracing::info!("he is a foreign player, so updating foreign player count") ;
-                                    details.0.foreign_players_brought += 1 ;
-                                    foreign_players_brought = details.0.foreign_players_brought ;
-                                    res.participants[details.1 as usize] = details.0 ;
+                                    redis_connection.increment_foreign_player_count(&room_id, participant_id).await?;
+                                    foreign_players_brought += 1 ;
                                 }
                                 message= Message::from(
                                     serde_json::to_string(&SoldPlayer {
-                                        team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
+                                        team_name: details[details.1 as usize].team_name,
                                         sold_price: current_bid.clone().bid_amount,
                                         remaining_balance,
-                                        remaining_rtms: res.participants[details.1 as usize].remaining_rtms,
+                                        remaining_rtms,
                                         foreign_players_brought
                                     }).unwrap()
                                 );
@@ -639,9 +661,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             }
 
                             // making sure no skipped count
-                            res.skip_count = HashMap::new() ;
-                            let res = serde_json::to_string(&res).unwrap();
-                            conn.set::<_,_,()>(&room_id, res).await?;
+                            redis_connection.update_skip_count(&room_id, HashMap::new()).await.expect("") ;
                             tracing::info!("we are going to broadcast the message to the room participant") ;
                             broadcast_handler(message,room_id.clone(), &app_state ).await ;
 
@@ -723,7 +743,7 @@ pub async fn get_next_player(room_id: String, player_id: i32, bid_expiry: u8, pa
             message = Message::text("Auction was Paused") ;
             tracing::info!("auction was paused and updated last player in redis") ;
            if !pause_status {
-               redis_connection.update_current_bid(room_id.clone(), Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await.expect("unable to update current bid");
+               redis_connection.update_current_bid(&room_id, Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry).await.expect("unable to update current bid");
                tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                message = Message::from(serde_json::to_string(&player).unwrap()) ;
            }
