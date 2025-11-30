@@ -210,16 +210,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                 match message {
                     Message::Text(text) => {
                         tracing::info!("Received text message: {}", text);
-
+                        let text = text.to_string() ;
                         // if a bid message was sent, then we are going to check for allowance
-                        if text.to_string() == "ping" {
+                        if text == "ping" {
                             tracing::info!("a ping message in room {}", room_id) ;
                             send_himself(Message::Pong(Bytes::from_static(b"pong")), participant_id,room_id.clone(),&app_state).await ;
                             continue;
-                        }else if text.to_string() == "mute" || text.to_string() == "unmute" {
-                            let value = text.to_string() ;
+                        }else if text == "mute" || text == "unmute" {
+                            let value = text ;
                             tracing::info!("{} message was received", value) ;
-                            let x = value.clone() + &format!("-{}",participant_id.to_string()) ; // the message will be mute-12, means participant 12 has muted himself
+                            let x = team_name.to_string()+ " " + &value.clone() + "d" ; // the message will be mute-12, means participant 12 has muted himself
                             broadcast_handler(Message::text(x), room_id.clone(), &app_state).await ;
                             // from now we are going to store the mute and unmute states
                             let val ;
@@ -229,7 +229,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 val = true ;
                             }
                             redis_connection.update_mute_status(&room_id, participant_id, val).await.expect("Unable to update mute and unmute status") ;
-                        }else if text.to_string() == "start" {
+                        }else if text == "start" {
                             if !redis_connection.is_creator(&room_id, participant_id).await {
                                 send_himself(Message::text("You will not having permissions"), participant_id, room_id.clone(), &app_state).await ;
                             }else{
@@ -290,7 +290,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     broadcast_handler(message,room_id.clone(),&app_state).await ;
                                 }
                             }
-                        }else if text.to_string() == "bid" {
+                        }else if text == "bid" {
                             /*
                                 If previously the same participant has send the bid, then that shouldn't be considered
 
@@ -333,7 +333,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 }
                             }
 
-                        } else if text.to_string() == "end" {
+                        } else if text == "end" {
                             // ending the auction
                             // when we click on end we are getting only exit as the message without any reason
                             // check whether he was the creator of the room
@@ -391,7 +391,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         broadcast_handler(message,room_id.clone(),&app_state).await ;
                                     }
 
-                        }else if text.to_string() == "pause" {
+                        }else if text == "pause" {
 
                             // we are going to pause the auction, such that when clicked create again, going to start from the last player
                                     if redis_connection.is_creator(&room_id, participant_id).await {
@@ -411,7 +411,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                         send_himself(Message::text("Only Creator can have permission"), participant_id, room_id.clone(), &app_state).await ;
                                     }
 
-                        }else if text.to_string() == "rtm-accept" { // need to check RTM, why even timer was there it was failing and also need to check whether the RTM timer was the expiry time
+                        }else if text == "rtm-accept" { // need to check RTM, why even timer was there it was failing and also need to check whether the RTM timer was the expiry time
                             // can only be called, if the key was rtms
                             if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() {
                                 tracing::info!("rtm was being accepted") ;
@@ -425,7 +425,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }else {
                                 send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
                             }
-                        }else if text.to_string().contains("rtm-cancel") {
+                        }else if text == "instant-rtm-cancel" {
+                            tracing::info!("cancelling the rtm instantly, where the previous team , don't want to use the rtm for the current player") ;
+                            redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
+                            let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
+                            let mut current_bid = room.current_bid.unwrap() ;
+                            current_bid.rtm_bid = true ;
+                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
+                            send_message_to_participant(participant_id, String::from("Cancelled the RTM"), room_id.clone(), &app_state).await ;
+                        } else if text.contains("rtm-cancel") {
                             tracing::info!("cancelling the offer by the highest bidder") ;
                             redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
                             // now we are going to send the same bid with expiry 0
@@ -434,9 +442,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
                             redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
-                        }
-                        else if text.to_string().contains("rtm") {
-                            tracing::info!("rtm was accepted with the following {}",text.to_string()) ;
+                        } else if text.contains("rtm") {
+                            tracing::info!("rtm was accepted with the following {}",text) ;
                             // we need to check
                             // if this key exists in the redis then no bids takes place
                             if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
@@ -444,7 +451,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
                                 let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                                 let mut bid = room.current_bid.unwrap() ;
-                                let amount = text.to_string().split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
+                                let amount = text.split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
 
                                 // now we are going to check whether the specific participant has the authority to use the rtm, means the current player
                                 // previous team should be the participant playing team
@@ -494,7 +501,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 send_himself(Message::text("No RTM Bids are taking place"), participant_id, room_id.clone(), &app_state).await ;
                             }
 
-                        }else if text.to_string() == "skip" {
+                        }else if text == "skip" {
                             tracing::info!("message skip was received") ;
                             // we need to add a state in redis
                             let mut room = redis_connection.get_room_details(&room_id).await.unwrap() ;
@@ -541,7 +548,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             tracing::info!("******************* Message for WeB RTC was ***************************") ;
                             tracing::info!("here is the front-end passed message {}", text.to_string()) ;
                             tracing::info!("****************************** *****************************************") ;
-                            if !(text.to_string().starts_with('{') && text.to_string().ends_with('}')) {
+                            if !(text.starts_with('{') && text.ends_with('}')) {
                                 tracing::warn!("Ignoring non-JSON message: {}", text);
                                 continue;
                             }
