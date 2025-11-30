@@ -557,10 +557,10 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     })).expect("Error While update balance to the unbounded channel") ;
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
-                    let bid = (Bid::new(0, 0,0.0,0.0, false, false)) ;
+                    let bid_ = (Bid::new(0, 0,0.0,0.0, false, false)) ;
                     redis_connection.update_skip_count(&room_id, HashMap::new()).await.expect("") ;
                     // bid expiry zero means it will not use timer just update the current bid value
-                    redis_connection.update_current_bid(&room_id, bid, 0).await.expect("") ;
+                    redis_connection.update_current_bid(&room_id, bid_, 0).await.expect("") ;
                     let mut foreign_players_brought = details.0.foreign_players_brought ;
                     if !res.current_player.clone().unwrap().is_indian {
                         // details.0.foreign_players_brought += 1 ;
