@@ -7,11 +7,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use crate::models::background_db_tasks::DBCommands;
 use crate::services::auction::DatabaseAccess;
+use crate::services::auction_room::RedisConnection;
+
 #[derive(Debug,Clone)]
 pub struct AppState {
     pub rooms: Arc<RwLock<HashMap<String, Vec<(i32, tokio::sync::mpsc::UnboundedSender<Message>)>>>>, // i32 is participant id
     pub database_connection: Arc<DatabaseAccess>,
     pub database_execute_task: tokio::sync::mpsc::UnboundedSender<DBCommands>,
+    pub redis_connection: Arc<RedisConnection>
 }
 
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize, sqlx::FromRow)]

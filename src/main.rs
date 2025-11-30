@@ -56,7 +56,8 @@ async fn routes() -> Router {
         AppState {
             rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
             database_connection: Arc::from(DatabaseAccess::new().await),
-            database_execute_task: tx
+            database_execute_task: tx,
+            redis_connection: Arc::new(services::auction_room::RedisConnection::new().await)
         }
     ) ;
     let redis_url = std::env::var("REDIS_URL").unwrap();
