@@ -649,7 +649,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                                 }
                                 message= Message::from(
                                     serde_json::to_string(&SoldPlayer {
-                                        team_name: details[details.1 as usize].team_name,
+                                        team_name: details.0.team_name.clone(),
                                         sold_price: current_bid.clone().bid_amount,
                                         remaining_balance,
                                         remaining_rtms,
