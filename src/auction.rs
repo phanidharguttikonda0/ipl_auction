@@ -425,7 +425,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             }else {
                                 send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
                             }
-                        }else if text.contains("rtm-cancel") {
+                        }else if text == "instant-rtm-cancel" {
+                            tracing::info!("cancelling the rtm instantly, where the previous team , don't want to use the rtm for the current player") ;
+                            redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
+                            let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
+                            let mut current_bid = room.current_bid.unwrap() ;
+                            current_bid.rtm_bid = true ;
+                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
+                            send_message_to_participant(participant_id, String::from("Cancelled the RTM"), room_id.clone(), &app_state).await ;
+                        } else if text.contains("rtm-cancel") {
                             tracing::info!("cancelling the offer by the highest bidder") ;
                             redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
                             // now we are going to send the same bid with expiry 0
@@ -434,15 +442,6 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
                             redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
-                        }else if text == "instant-rtm-cancel" {
-                          tracing::info!("cancelling the rtm instantly, where the previous team , don't want to use the rtm for the current player") ;
-                            redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
-                            let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
-                            let mut current_bid = room.current_bid.unwrap() ;
-                            current_bid.is_rtm = false ;
-                            current_bid.rtm_bid = true ;
-                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
-                            send_message_to_participant(participant_id, String::from("Cancelled the RTM"), room_id.clone(), &app_state).await ;
                         } else if text.contains("rtm") {
                             tracing::info!("rtm was accepted with the following {}",text) ;
                             // we need to check
