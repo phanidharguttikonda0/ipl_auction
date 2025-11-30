@@ -277,7 +277,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
-                                            redis_connection.update_current_bid(room_id.clone(),bid, expiry_time).await.expect("unable to update the bid") ;
+                                            redis_connection.update_current_bid(&room_id,bid, expiry_time).await.expect("unable to update the bid") ;
                                         } ,
                                         Err(err) => {
                                             tracing::info!("Unable to get the player-id, may be a technical Issue") ;
@@ -421,7 +421,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 let bid = room.current_bid.unwrap() ;
                                 let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                                 // adding the bid to the redis
-                                redis_connection.update_current_bid(room_id.clone(), bid, 1).await.unwrap() ;
+                                redis_connection.update_current_bid(&room_id, bid, 1).await.unwrap() ;
                             }else {
                                 send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), room_id.clone(), &app_state).await ;
                             }
@@ -432,7 +432,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                             let mut current_bid = room.current_bid.unwrap() ;
                             current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
-                            redis_connection.update_current_bid(room_id.clone(), current_bid, 1).await.unwrap() ;
+                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id.clone(), &app_state).await ;
                         }
                         else if text.to_string().contains("rtm") {
@@ -465,7 +465,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // creating the new Bid
                                             let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
                                             // adding the bid to the redis
-                                            let _ = redis_connection.update_current_bid(room_id.clone(), bid_, expiry_time).await.unwrap() ;
+                                            let _ = redis_connection.update_current_bid(&room_id, bid_, expiry_time).await.unwrap() ;
                                             send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), room_id.clone(), &app_state).await ;
                                             continue;
                                         }else if rtm_placer_participant_bid_allowance {
@@ -473,7 +473,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // delete the key and add the new bid with expiry 0 seconds
 
                                             // new bid
-                                            redis_connection.update_current_bid(room_id.clone(), Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1).await.unwrap() ;
+                                            redis_connection.update_current_bid(&room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1).await.unwrap() ;
                                             // send to the highest bidder the reason
                                             send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), room_id.clone(), &app_state).await ;
                                             continue;
@@ -488,7 +488,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     send_himself(Message::text("The current player is not in ur team previously"), participant_id, room_id.clone(), &app_state).await ;
                                 }
                                 bid.rtm_bid = true ; // it will be rtm_bid , but for remaining rtms will be same, only thing is in subscriber making sure no infinite loop takes place, where we are going to inifinetly if there previous
-                                let _ = redis_connection.update_current_bid(room_id.clone(), bid, 1).await.unwrap() ;
+                                let _ = redis_connection.update_current_bid(&room_id, bid, 1).await.unwrap() ;
                             }else {
                                 tracing::info!("Now no RTM bids were taking place") ;
                                 send_himself(Message::text("No RTM Bids are taking place"), participant_id, room_id.clone(), &app_state).await ;
@@ -518,7 +518,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                 message = "Player going to sold to highest bidder".to_string() ;
                                             }
                                             // giving to the highest bidder
-                                            redis_connection.update_current_bid(room_id.clone(), current_bid,1).await.unwrap() ;
+                                            redis_connection.update_current_bid(&room_id, current_bid,1).await.unwrap() ;
                                         }else {
                                             message = "At this Stage Skip won't work".to_string();
                                         }
