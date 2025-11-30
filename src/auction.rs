@@ -440,7 +440,9 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             let room = redis_connection.get_room_details(&room_id).await.unwrap() ;
                             let mut current_bid = room.current_bid.unwrap() ;
                             current_bid.is_rtm = false ;
+                            current_bid.rtm_bid = true ;
                             redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
+                            send_message_to_participant(participant_id, String::from("Cancelled the RTM"), room_id.clone(), &app_state).await ;
                         } else if text.contains("rtm") {
                             tracing::info!("rtm was accepted with the following {}",text) ;
                             // we need to check
