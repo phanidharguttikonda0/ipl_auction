@@ -45,7 +45,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         are going to return, that auction was completed room is close.
 
     */
-    let mut redis_connection = RedisConnection::new().await;
+    let redis_connection = app_state.redis_connection.clone();
     let room_status = app_state.database_connection.get_room_status(room_id.clone()).await ;
     let room_status = match room_status {
         Ok(room_status) => room_status,
@@ -300,7 +300,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             if !redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                 tracing::info!("as the key doesn't exists we are not going to take this bid") ;
                                 send_himself(Message::text("Bid is Invalid, RTM is taking place"), participant_id, room_id.clone(), &app_state).await ;
-                            } else if (!room.current_player.clone().unwrap().is_indian) && (!is_foreigner_allowed(participant_id, &room_id, &mut redis_connection).await) {
+                            } else if (!room.current_player.clone().unwrap().is_indian) && (!is_foreigner_allowed(participant_id, &room_id, &redis_connection).await) {
                                 tracing::info!("foreign players has reached max for the participant, so bid becomes invalid") ;
                                 send_himself(Message::text("You reached Foreign Player limit"), participant_id, room_id.clone(), &app_state).await ;
                             } else {
@@ -673,7 +673,7 @@ pub async fn bid_allowance_handler(room_id: String, current_bid: f32, balance: f
     }
 }
 
-pub async fn is_foreigner_allowed(participant_id: i32, room_id: &str, redis_connection: &mut RedisConnection) -> bool {
+pub async fn is_foreigner_allowed(participant_id: i32, room_id: &str, redis_connection: &Arc<RedisConnection>) -> bool {
     tracing::info!("checking whether foreigner player is allowed or not") ;
     let room = redis_connection.get_room_details(room_id).await.unwrap() ;
     let participant = get_participant_details(participant_id, &room.participants).unwrap() ;

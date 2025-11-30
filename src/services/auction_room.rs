@@ -5,6 +5,7 @@ use crate::auction::{bid_allowance_handler, broadcast_handler, is_foreigner_allo
 use crate::models::app_state::{AppState, Player};
 use crate::models::auction_models::{AuctionParticipant, AuctionRoom, Bid, SoldPlayer};
 
+#[derive(Debug, Clone)]
 pub struct RedisConnection {
     connection: redis::aio::MultiplexedConnection,
 }
@@ -17,28 +18,31 @@ impl RedisConnection {
         }
     }
 
-    pub async fn set_room(&mut self,room_id: String, room: AuctionRoom) -> Result<String, redis::RedisError> {
+    pub async fn set_room(&self, room_id: String, room: AuctionRoom) -> Result<String, redis::RedisError> {
         let serialized_room = serde_json::to_string(&room).unwrap();
         /*
             as redis doesn't able to understand rust structs , even though the struct implements traits like
             FromRedisArgs , ToRedisArgs , it cannot able to serialize or deserialize the values of vec or Options etc.
         */
-        self.connection.set(room_id, serialized_room).await
+        let mut conn = self.connection.clone();
+        conn.set(room_id, serialized_room).await
     }
 
     pub async fn check_room_existence(
-        &mut self,
+        &self,
         room_id: String,
     ) -> Result<bool, redis::RedisError> {
         // Try to get the value for the given key
-        let value: Option<String> = self.connection.get(room_id).await?;
+        let mut conn = self.connection.clone();
+        let value: Option<String> = conn.get(room_id).await?;
 
         // If Redis returns `None`, it means the key doesn't exist
         Ok(value.is_some())
     }
 
-    pub async fn update_current_bid(&mut self, room_id: &str, bid: Bid, expiry: u8) -> Result<String, redis::RedisError> {
-        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+    pub async fn update_current_bid(&self, room_id: &str, bid: Bid, expiry: u8) -> Result<String, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let value: RedisResult<String> = conn.get(room_id.clone()).await ;
         let timer_key;
         if bid.is_rtm {
             timer_key = format!("auction:timer:rtms:{}", room_id)
@@ -50,9 +54,9 @@ impl RedisConnection {
                 let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
                 value.current_bid  = Some(bid) ;
                 let value = serde_json::to_string(&value).unwrap();
-                self.connection.set::<_, _, ()>(room_id.clone(), value).await.expect("unable to set the updated value in new_bid");
+                conn.set::<_, _, ()>(room_id.clone(), value).await.expect("unable to set the updated value in new_bid");
                  if expiry != 0 {
-                     self.connection.set_ex::<_,_,()>(&timer_key, "active", expiry as u64).await.expect("unable to set the expiry");
+                     conn.set_ex::<_,_,()>(&timer_key, "active", expiry as u64).await.expect("unable to set the expiry");
                  }// we can pass expiry as 0  if we want to just update the bid with out any timer
                 Ok("Bid updated and TTL reset".to_string())
             },
@@ -62,14 +66,15 @@ impl RedisConnection {
         }
     }
 
-    pub async fn add_participant(&mut self, room_id: String, participant: AuctionParticipant) -> Result<String, redis::RedisError> {
-        let mut value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+    pub async fn add_participant(&self, room_id: String, participant: AuctionParticipant) -> Result<String, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let mut value: RedisResult<String> = conn.get(room_id.clone()).await ;
         match value {
             Ok(mut value) => {
                 let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
                 value.add_participant(participant) ;
                 let value = serde_json::to_string(&value).unwrap();
-                self.connection.set(room_id, value).await
+                conn.set(room_id, value).await
             },
             Err(e) => {
                 Err(e)
@@ -77,8 +82,9 @@ impl RedisConnection {
         }
     }
 
-    pub async fn get_participant(&mut self, room_id: String, participant_id: i32) -> Result<Option<AuctionParticipant>, redis::RedisError> {
-        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+    pub async fn get_participant(&self, room_id: String, participant_id: i32) -> Result<Option<AuctionParticipant>, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let value: RedisResult<String> = conn.get(room_id.clone()).await ;
         match value {
             Ok(value) => {
                 let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
@@ -97,8 +103,9 @@ impl RedisConnection {
     
 
     
-    pub async fn check_participant(&mut self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
-        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+    pub async fn check_participant(&self, participant_id: i32, room_id: String) -> Result<bool, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let value: RedisResult<String> = conn.get(room_id.clone()).await ;
         match value {
             Ok(value) => {
                 let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
@@ -123,8 +130,9 @@ impl RedisConnection {
         }
     }
 
-    pub async fn load_players_to_redis(&mut self, players: Vec<Player>) -> Result<(), String> {
-        let value: RedisResult<String> = self.connection.get("players").await ;
+    pub async fn load_players_to_redis(&self, players: Vec<Player>) -> Result<(), String> {
+        let mut conn = self.connection.clone();
+        let value: RedisResult<String> = conn.get("players").await ;
         match value {
             Ok(value) => {
                 tracing::info!("players already exists in redis") ;
@@ -143,14 +151,15 @@ impl RedisConnection {
             Err(e) => {
                 tracing::info!("players doesn't exists in redis") ;
                 tracing::info!("adding players to redis") ;
-                let _:() = self.connection.set("players", serde_json::to_string(&players).unwrap()).await.expect("unable to add players to redis");
+                let _:() = conn.set("players", serde_json::to_string(&players).unwrap()).await.expect("unable to add players to redis");
                 Err("getting error while getting players key from redis".to_string())
             }
         }
     }
 
 
-    pub async fn get_player(&mut self, player_id: i32, room_id: &str) -> Result<Player, redis::RedisError> {
+    pub async fn get_player(&self, player_id: i32, room_id: &str) -> Result<Player, redis::RedisError> {
+        let mut conn = self.connection.clone();
         if room_id.len() != 0 {
             let room = self.get_room_details(room_id).await?;
 
@@ -167,7 +176,7 @@ impl RedisConnection {
             } ;
         }
         // Get raw JSON string from Redis
-        let data: RedisResult<String> = self.connection.get("players").await;
+        let data: RedisResult<String> = conn.get("players").await;
 
         match data {
             Ok(json) => {
@@ -193,8 +202,9 @@ impl RedisConnection {
     }
 
 
-    pub async fn new_bid(&mut self, participant_id: i32, room_id: String, expiry_time: u8) -> Result<f32, String> {
-       let mut room: RedisResult<String>= self.connection.get(room_id.clone()).await ;
+    pub async fn new_bid(&self, participant_id: i32, room_id: String, expiry_time: u8) -> Result<f32, String> {
+        let mut conn = self.connection.clone();
+        let mut room: RedisResult<String>= conn.get(room_id.clone()).await ;
         let timer_key = format!("auction:timer:{}", room_id);
         tracing::info!("timer key was {}", timer_key) ;
         match room {
@@ -230,9 +240,9 @@ impl RedisConnection {
                     room.current_bid = Some(Bid::new(participant_id, current_bid.player_id, next_bid, current_bid.base_price, false, false)) ;
                     let room = serde_json::to_string(&room).unwrap();
                     tracing::info!("room was serialized ") ;
-                    self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
+                    conn.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in new_bid");
                     // it gets restarted if any bid comes before 20 seconds
-                    let res = self.connection.set_ex::<_,_, ()>(&timer_key, "active", expiry_time as u64).await;
+                    let res = conn.set_ex::<_,_, ()>(&timer_key, "active", expiry_time as u64).await;
 
                     Ok(next_bid)
                 }else { 
@@ -246,8 +256,9 @@ impl RedisConnection {
         }
     }
 
-    pub async fn check_end_auction(&mut self, room_id: String) -> Result<bool, redis::RedisError> {
-        let room: RedisResult<String> = self.connection.get(&room_id).await ;
+    pub async fn check_end_auction(&self, room_id: String) -> Result<bool, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let room: RedisResult<String> = conn.get(&room_id).await ;
         match room {
             Ok(room) => {
                 tracing::info!("checking all the participants no of player brought") ;
@@ -271,9 +282,10 @@ impl RedisConnection {
         }
     }
 
-    pub async fn current_player_id(&mut self, room_id: String) -> Result<i32, redis::RedisError> {
+    pub async fn current_player_id(&self, room_id: String) -> Result<i32, redis::RedisError> {
+        let mut conn = self.connection.clone();
         tracing::info!("getting current player id redis function was called") ;
-        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+        let value: RedisResult<String> = conn.get(room_id.clone()).await ;
         match value {
             Ok(value) => {
                 tracing::info!("let's get the value , whether it was null or it contains room") ;
@@ -300,8 +312,9 @@ impl RedisConnection {
         }
     }
     
-    pub async fn get_participants(&mut self, room_id: String) -> Result<Vec<AuctionParticipant>, redis::RedisError> {
-        let mut value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+    pub async fn get_participants(&self, room_id: String) -> Result<Vec<AuctionParticipant>, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let mut value: RedisResult<String> = conn.get(room_id.clone()).await ;
         match value {
             Ok(mut value) => {
                 let mut value: AuctionRoom = serde_json::from_str(&value).unwrap();
@@ -313,15 +326,16 @@ impl RedisConnection {
         }
     }
 
-    pub async fn update_current_player(&mut self, room_id: String, player: Player) -> Result<(), redis::RedisError> {
+    pub async fn update_current_player(&self, room_id: String, player: Player) -> Result<(), redis::RedisError> {
+        let mut conn = self.connection.clone();
         tracing::info!("updating last player id redis function was called") ;
-        let value: RedisResult<String> = self.connection.get(room_id.clone()).await ;
+        let value: RedisResult<String> = conn.get(room_id.clone()).await ;
         match value {
             Ok(mut value) => {
                 let mut room: AuctionRoom = serde_json::from_str(&value).unwrap();
                 room.current_player = Some(player) ;
                 let value = serde_json::to_string(&room).unwrap();
-                self.connection.set(room_id, value).await
+                conn.set(room_id, value).await
             },
             Err(e) => {
                 tracing::error!("got error while updating last player id redis function was called") ;
@@ -330,7 +344,8 @@ impl RedisConnection {
         }
     }
 
-    pub async fn atomic_delete(&mut self, key: &str) -> redis::RedisResult<i32> {
+    pub async fn atomic_delete(&self, key: &str) -> redis::RedisResult<i32> {
+        let mut conn = self.connection.clone();
         let script = r#"
         local existed = redis.call('DEL', KEYS[1])
         return existed
@@ -338,15 +353,16 @@ impl RedisConnection {
 
         let result: i32 = redis::Script::new(script)
             .key(key)
-            .invoke_async(&mut self.connection)
+            .invoke_async(&mut conn)
             .await?;
 
         Ok(result)
     }
 
-    pub async fn get_remaining_rtms(&mut self, room_id: String, participant_id: i32) -> Result<i16, redis::RedisError> {
+    pub async fn get_remaining_rtms(&self, room_id: String, participant_id: i32) -> Result<i16, redis::RedisError> {
         tracing::info!("getting remaining rtms redis function was called") ;
-        let result: RedisResult<String> = self.connection.get(&room_id).await ;
+        let mut conn = self.connection.clone();
+        let result: RedisResult<String> = conn.get(&room_id).await ;
         match result {
             Ok(value) => {
                 let room: AuctionRoom = serde_json::from_str(&value).unwrap();
@@ -361,9 +377,10 @@ impl RedisConnection {
         }
     }
 
-    pub async fn update_remaining_rtms(&mut self, room_id: &str, participant_id: i32) -> Result<i16, redis::RedisError> {
+    pub async fn update_remaining_rtms(&self, room_id: &str, participant_id: i32) -> Result<i16, redis::RedisError> {
         tracing::info!("updating remaining rtms redis function was called") ;
-        let result: RedisResult<String> = self.connection.get(room_id).await ;
+        let mut conn = self.connection.clone();
+        let result: RedisResult<String> = conn.get(room_id).await ;
         match result {
             Ok(value) => {
                 let mut room: AuctionRoom = serde_json::from_str(&value).unwrap();
@@ -371,7 +388,7 @@ impl RedisConnection {
                 room.participants[participant.1 as usize].remaining_rtms -= 1 ;
                 let remaining_rtms = room.participants[participant.1 as usize].remaining_rtms ;
                 // we are going to set the updated value in the redis
-                self.connection.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_remaining_rtms") ;
+                conn.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_remaining_rtms") ;
                 Ok(remaining_rtms)
             },
             Err(e) => {
@@ -383,32 +400,35 @@ impl RedisConnection {
     }
 
 
-    pub async fn check_key_exists(&mut self, key: &str) -> Result<bool, redis::RedisError> {
+    pub async fn check_key_exists(&self, key: &str) -> Result<bool, redis::RedisError> {
         tracing::info!("checking key exists redis function was called") ;
-        let result: RedisResult<i32> = self.connection.exists(key).await ;
+        let mut conn = self.connection.clone();
+        let result: RedisResult<i32> = conn.exists(key).await ;
         match result {
             Ok(value) => Ok(value != 0),
             Err(e) => Err(e)
         }
     }
 
-    pub async fn get_room_details(&mut self, room_id: &str) -> Result<AuctionRoom, redis::RedisError> {
-        let room: RedisResult<String> = self.connection.get(room_id).await ;
+    pub async fn get_room_details(&self, room_id: &str) -> Result<AuctionRoom, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let room: RedisResult<String> = conn.get(room_id).await ;
         match room {
             Ok(room) => Ok(serde_json::from_str(&room).unwrap()),
             Err(e) => Err(e)
         }
     }
 
-    pub async fn set_pause_status(&mut self, room_id: &str, pause_status: bool) -> Result<(), redis::RedisError> {
-        let room: RedisResult<String> = self.connection.get(room_id).await ;
+    pub async fn set_pause_status(&self, room_id: &str, pause_status: bool) -> Result<(), redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let room: RedisResult<String> = conn.get(room_id).await ;
         match room {
             Ok(room) => {
                 tracing::info!("setting pause status redis function was called") ;
                 let mut room: AuctionRoom = serde_json::from_str(&room).unwrap();
                 if room.pause != pause_status {
                     room.pause = pause_status ;
-                    self.connection.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in set_pause_status") ;
+                    conn.set::<_, _, ()>(room_id, serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in set_pause_status") ;
                 }
                 Ok(())
             },
@@ -419,20 +439,21 @@ impl RedisConnection {
         }
     }
 
-    pub async fn update_mute_status(&mut self, room_id: &str, participant_id: i32, unmute: bool) -> Result<(), redis::RedisError> {
+    pub async fn update_mute_status(&self, room_id: &str, participant_id: i32, unmute: bool) -> Result<(), redis::RedisError> {
         tracing::info!("updating mute status redis function was called") ;
+        let mut conn = self.connection.clone();
         let mut room = self.get_room_details(room_id).await?;
         let mut participant = get_participant_details(participant_id, &room.participants).unwrap() ;
         tracing::info!("got the participant details from the mute status") ;
         participant.0.is_unmuted = unmute ;
         room.participants[participant.1 as usize] = participant.0 ; // updated the participant mute or unmute status
         let room = serde_json::to_string(&room).unwrap();
-        self.connection.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in update_mute_status");
+        conn.set::<_, _, ()>(room_id.clone(), room).await.expect("unable to set the updated value in update_mute_status");
         Ok(())
     }
 
 
-    pub async fn is_creator(&mut self, room_id: &str, participant_id: i32) -> bool {
+    pub async fn is_creator(&self, room_id: &str, participant_id: i32) -> bool {
         let room = self.get_room_details(room_id).await.expect("unable to get room details");
         if room.room_creator_id == participant_id {
             true
@@ -441,36 +462,40 @@ impl RedisConnection {
         }
     }
 
-    pub async fn increment_foreign_player_count(&mut self, room_id: &str, participant_id: i32) -> Result<(), redis::RedisError> {
+    pub async fn increment_foreign_player_count(&self, room_id: &str, participant_id: i32) -> Result<(), redis::RedisError> {
+        let mut conn = self.connection.clone();
         let mut room = self.get_room_details(room_id).await.expect("error getting room details from increment_foreign_player_count") ;
         let mut participant = get_participant_details(participant_id, &room.participants).expect("error getting participant details from increment_foreign_player_count") ;
         participant.0.foreign_players_brought += 1 ;
         room.participants[participant.1 as usize] = participant.0 ;
-        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in increment_foreign_player_count") ;
+        conn.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in increment_foreign_player_count") ;
         Ok(())
     }
 
-    pub async fn add_current_player(&mut self, room_id: &str, player: Player)  {
+    pub async fn add_current_player(&self, room_id: &str, player: Player)  {
         tracing::info!("adding current player redis function was called") ;
+        let mut conn = self.connection.clone();
         let mut room = self.get_room_details(room_id).await.expect("unable to get room details") ;
         room.current_player = Some(player) ;
-        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in add_current_player") ;
+        conn.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in add_current_player") ;
     }
 
-    pub async fn update_balance_total_players_brought(&mut self, room_id: &str, participant_id: i32, new_balance: f32) -> Result<u8, redis::RedisError> {
+    pub async fn update_balance_total_players_brought(&self, room_id: &str, participant_id: i32, new_balance: f32) -> Result<u8, redis::RedisError> {
+        let mut conn = self.connection.clone();
         let mut room = self.get_room_details(room_id).await.expect("error getting room details from update_balance_total_players_brought") ;
         let mut participant = get_participant_details(participant_id, &room.participants).expect("error getting participant details from update_balance_total_players_brought") ;
         room.participants[participant.1 as usize].balance = new_balance ;
         room.participants[participant.1 as usize].total_players_brought += 1 ;
         let total_players_brought = room.participants[participant.1 as usize].total_players_brought ;
-        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_balance_total_players_brought") ;
+        conn.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_balance_total_players_brought") ;
         Ok(total_players_brought)
     }
 
-    pub async fn update_skip_count(&mut self, room_id: &str, skip_count: HashMap<i32,bool>) -> Result<(), redis::RedisError> {
+    pub async fn update_skip_count(&self, room_id: &str, skip_count: HashMap<i32,bool>) -> Result<(), redis::RedisError> {
+        let mut conn = self.connection.clone();
         let mut room = self.get_room_details(room_id).await.expect("error getting room details from update_skip_count") ;
         room.skip_count = skip_count ;
-        self.connection.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_skip_count") ;
+        conn.set::<_, _, ()>(room_id.clone(), serde_json::to_string(&room).unwrap()).await.expect("unable to set the updated value in update_skip_count") ;
         Ok(())
     }
 }
@@ -496,7 +521,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
     // Subscribe to key event notifications for expired keys
     pubsub.subscribe("__keyevent@0__:expired").await?;
 
-    let mut redis_connection = RedisConnection::new().await;
+    let redis_connection = app_state.redis_connection.clone();
 
     let bid_expiry = std::env::var("BID_EXPIRY").unwrap().parse::<u8>().unwrap();
 
@@ -512,7 +537,10 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
         tracing::info!("is rtm ---------------> {}", is_rtm) ;
         tracing::info!("room_id from that expiry key was {}", room_id);
         tracing::info!("we are going to use the key to broadcast") ;
-        match conn.get::<_, Option<String>>(&room_id).await {
+        match {
+            let mut conn = redis_connection.connection.clone() ;
+            conn.get::<_, Option<String>>(&room_id).await
+        } {
             Ok(Some(room)) => {
                 let mut res: AuctionRoom = serde_json::from_str(&room).unwrap();
                 let message;
@@ -609,7 +637,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
                     if ((!previous_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid)
                         && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id
-                        && !res.skip_count.contains_key(&previous_team_participant_id) && (res.current_player.clone().unwrap().is_indian || is_foreigner_allowed(previous_team_participant_id, &room_id, &mut redis_connection).await)
+                        && !res.skip_count.contains_key(&previous_team_participant_id) && (res.current_player.clone().unwrap().is_indian || is_foreigner_allowed(previous_team_participant_id, &room_id, &redis_connection).await)
                     { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
                         tracing::info!("going to send the Use RTM") ;
                         // so we are going to create a new expiry key, and for that key there will be another subscriber
@@ -620,7 +648,8 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
 
                         // setting the new timer
                         let rtm_timer_key = format!("auction:timer:rtms:{}", room_id); // if this key exists in the redis then no bids takes place
-                        redis_connection.connection.set_ex::<_, _, ()>(&rtm_timer_key, "rtm", bid_expiry as u64).await.expect("unable to set the updated value in new_bid");
+                        let mut conn = redis_connection.connection.clone() ;
+                        conn.set_ex::<_, _, ()>(&rtm_timer_key, "rtm", bid_expiry as u64).await.expect("unable to set the updated value in new_bid");
                         tracing::info!("we have successfully sent the message to the previous team, regarding RTM") ;
                         continue;
                     }else {
