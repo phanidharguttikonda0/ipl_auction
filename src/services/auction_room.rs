@@ -197,7 +197,10 @@ impl RedisConnection {
     pub async fn increment_foreign_player_count(&self, room_id: &str, participant_id: i32) -> Result<(), redis::RedisError> {
         let mut conn = self.connection.clone();
 
-        let key = format!("room:{}:meta", room_id);
+        let key = format!(
+            "room:{}:participant:{}:meta",
+            room_id, participant_id
+        );
 
         redis::cmd("HINCRBY")
             .arg(&key)
