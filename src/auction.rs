@@ -369,9 +369,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                                     if redis_connection.get_room_meta(&room_id).await.unwrap().unwrap().room_creator_id != participant_id {
                                         send_himself(Message::text("Only Creator can have permission"), participant_id, &room_id, &app_state).await ;
+                                    }else if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() {
+                                        send_himself(Message::text("During RTM You cannot End the Auction"), participant_id, &room_id, &app_state).await ;
                                     }else{
+                                        tracing::info!("deleting the timer key ") ;
+                                        redis_connection.atomic_delete(&timer_key).await.unwrap() ;
                                         // second, check whether all the participants having least 15 players in their squad
-                                        let res = redis_connection.check_end_auction(&room_id).await ;
+                                        // no need to have a condition to have at least 15 players in each squad
+                                        tracing::info!("cleaning up the redis keys related to the auction") ;
+                                        let res = redis_connection.auction_clean_up(&room_id).await ;
                                         let message ;
                                         match res {
                                             Ok(res) => {
@@ -382,24 +388,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                         Ok(result) => {
                                                             tracing::info!("room status changed to completed") ;
                                                             // here we are going to remove the data from redis
-                                                            match redis_connection.atomic_delete(&room_id).await {
-                                                                Ok(_) => {
-                                                                    tracing::info!("successfully removed the room from redis") ;
-                                                                    // we are going to make sure add the completed_at field and also unsold players list from this auction
+                                                            tracing::info!("successfully removed the room from redis") ;
+                                                            // we are going to make sure add the completed_at field and also unsold players list from this auction
 
-                                                                    // deleting the unsold players list
-                                                                    app_state.database_connection.remove_unsold_players(&room_id).await.expect("error occurred while deleting unsold players") ;
-                                                                    // updating the set_completed_at
-                                                                    app_state.database_connection.set_completed_at(&room_id).await.expect("error while updating completed_at") ;
+                                                            // deleting the unsold players list
+                                                            app_state.database_connection.remove_unsold_players(&room_id).await.expect("error occurred while deleting unsold players") ;
+                                                            // updating the set_completed_at
+                                                            app_state.database_connection.set_completed_at(&room_id).await.expect("error while updating completed_at") ;
 
-                                                                    message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
-                                                                },
-                                                                Err(err) => {
-                                                                    tracing::info!("got error while removing the room from redis") ;
-                                                                    tracing::error!("{}", err) ;
-                                                                    message = Message::text("Technical Issue")
-                                                                }
-                                                            }
+                                                            message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
                                                         },
                                                         Err(err) => {
                                                             tracing::info!("unable to update the room status to completed") ;
@@ -409,7 +406,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                     }
 
                                                 }else {
-                                                    message = Message::text("Not enough players brought by each team") ;
+                                                    message = Message::text("Unable to End Auction, Due to Technical Problem") ;
                                                 }
                                             },
                                             Err(err) => {

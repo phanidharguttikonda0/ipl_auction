@@ -572,11 +572,57 @@ impl RedisConnection {
 
 
 
-    pub async fn check_end_auction(&self, room_id: &str) -> Result<bool, redis::RedisError> {
+    pub async fn auction_clean_up(
+        &self,
+        room_id: &str,
+    ) -> Result<bool, redis::RedisError> {
         let mut conn = self.connection.clone();
+
+        // Pattern for all room keys
+        let pattern = format!("room:{}:*", room_id);
+
+        // SCAN cursor
+        let mut cursor: u64 = 0;
+
+        let mut keys_to_delete = Vec::new();
+
+        loop {
+            let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(200)
+                .query_async(&mut conn)
+                .await?;
+
+            cursor = new_cursor;
+
+            keys_to_delete.extend(keys);
+
+            if cursor == 0 {
+                break;
+            }
+        }
+
+        if keys_to_delete.is_empty() {
+            return Ok(false); // nothing to delete
+        }
+
+        // Delete all keys in one atomic pipeline
+        let mut pipe = redis::pipe();
+        pipe.atomic();
+
+        for key in keys_to_delete {
+            pipe.cmd("DEL").arg(key);
+        }
+
+        // Execute pipeline
+        pipe.query_async::<()>(&mut conn).await?;
 
         Ok(true)
     }
+
 
     pub async fn atomic_delete(&self, key: &str) -> redis::RedisResult<i32> {
         let mut conn = self.connection.clone();
