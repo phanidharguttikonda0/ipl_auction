@@ -249,7 +249,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     match  redis_connection.set_pause(&room_id, false).await {
                                         Ok(_) => {
                                             tracing::info!("successfully set the status to pause") ;
-                                            send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, &room_id, &app_state).await ;
+                                            // send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, &room_id, &app_state).await ;
                                         },
                                         Err(err) => {
                                             tracing::error!("error occurred while setting the pause status") ;
