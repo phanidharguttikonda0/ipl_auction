@@ -201,7 +201,7 @@ impl RedisConnection {
 
         redis::cmd("HINCRBY")
             .arg(&key)
-            .arg("foreign_player_brought")
+            .arg("foreign_players_brought")
             .arg(1)
             .query_async::<i32>(&mut conn)
             .await?;
