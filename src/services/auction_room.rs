@@ -597,7 +597,7 @@ impl RedisConnection {
 
         // EXISTS returns bool in redis-rs async API
         let exists: bool = conn.exists(key).await?;
-
+        tracing::info!("the key exists {}",exists);
         Ok(exists)
     }
     // this is enough to check whether the participant or the room exists or not
