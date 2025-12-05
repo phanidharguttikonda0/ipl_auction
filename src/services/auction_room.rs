@@ -201,7 +201,7 @@ impl RedisConnection {
 
         redis::cmd("HINCRBY")
             .arg(&key)
-            .arg("foreign_player_count")
+            .arg("foreign_player_brought")
             .arg(1)
             .query_async::<i32>(&mut conn)
             .await?;
@@ -263,7 +263,7 @@ impl RedisConnection {
         let result : RedisResult<()> = redis::cmd("HSET")
             .arg(&key)
             .arg("unmuted")
-            .arg(if is_unmuted { 0 } else { 1 })
+            .arg(if is_unmuted { 1 } else { 0 })
             .query_async::<()>(&mut conn)
             .await;
 
