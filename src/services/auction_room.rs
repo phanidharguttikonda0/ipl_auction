@@ -270,7 +270,7 @@ impl RedisConnection {
 
     pub async fn get_current_player(&self, room_id: &str) -> Result<Option<Player>, redis::RedisError> {
         let mut conn = self.connection.clone();
-        let res = self.get_room_meta(room_id).await?.expect("room meta not found");
+
         let key = format!("room:{}:current_player", room_id) ;
         let result: RedisResult<Option<Player>> = redis::cmd("HMGET").
              arg("id")
@@ -607,10 +607,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     Some(current_player) => current_player,
                     None => {
                         tracing::warn!("No current player") ;
-                        // we need to get the 1st player
-                        let player = redis_connection.get_player(1,&room_id).await? ;
-                        redis_connection.set_current_player(&room_id, player.clone()).await? ;
-                        player
+                        continue;
                     }
                 } ;
                 let pause_status = room_meta.pause ;

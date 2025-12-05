@@ -260,19 +260,21 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                                     // we are going to return the first player from the auction
                                     let player = redis_connection.get_current_player(&room_id).await.unwrap() ;
-                                    // let player = match player {
-                                    //     Some(player) => {
-                                    //         tracing::info!("got the current player") ;
-                                    //         player
-                                    //     },
-                                    //     None => {
-                                    //         tracing::warn!("I guess auction was just starting no current player") ;
-                                    //         redis_connection.get_player(1, &room_id).await.unwrap()
-                                    //     }
-                                    // } ;
-                                    let message ;
-                                    match player {
+                                    let player = match player {
                                         Some(player) => {
+                                            tracing::info!("got the current player") ;
+                                            player
+                                        },
+                                        None => {
+                                            tracing::warn!("I guess auction was just starting no current player") ;
+                                            // we need to get the 1st player
+                                            let player = redis_connection.get_player(1,&room_id).await.unwrap() ;
+                                            redis_connection.set_current_player(&room_id, player.clone()).await.unwrap() ;
+                                            player
+                                        }
+                                    } ;
+                                    let message ;
+
                                             if player.id == 1 {
                                                 // // changing room-status
                                                 app_state.database_execute_task.send(DBCommands::UpdateRoomStatus(models::background_db_tasks::RoomStatus{
@@ -285,12 +287,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
                                             redis_connection.update_current_bid(&room_id,bid, expiry_time).await.expect("unable to update the bid") ;
-                                        } ,
-                                        None => {
-                                            tracing::info!("Unable to get the player-id, may be a technical Issue") ;
-                                            message = Message::text("Technical Glitch") ;
-                                        }
-                                    } ;
+
 
                                     // broadcasting
                                     broadcast_handler(message,&room_id,&app_state).await ;
