@@ -298,8 +298,22 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 If previously the same participant has send the bid, then that shouldn't be considered
 
                             */
-                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
-                            let participant = redis_connection.get_participant(&room_id, participant_id).await.unwrap().unwrap() ;
+                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                            let mut current_bid = match current_bid {
+                                Some(bid) => bid,
+                                None => {
+                                    tracing::warn!("there no current bid that we got over here") ;
+                                    continue
+                                }
+                            } ;
+                            let participant = redis_connection.get_participant(&room_id, participant_id).await.unwrap() ;
+                            let participant =  match participant {
+                                Some(participant) => participant,
+                                None => {
+                                    tracing::warn!("no current participant we got over here") ;
+                                    continue
+                                }
+                            } ;
                             let current_player = redis_connection.get_current_player(&room_id).await.unwrap().unwrap() ;
                             // if this key exists in the redis then only bids takes place
                             if !redis_connection.check_key_exists(&timer_key).await.unwrap() {
