@@ -378,7 +378,8 @@ impl DatabaseAccess {
                     "
             SELECT
                 r.id::TEXT AS room_id,
-                r.created_at
+                r.created_at,
+                r.status::TEXT
             FROM rooms r
             JOIN participants p
                 ON r.id = p.room_id
@@ -402,8 +403,9 @@ impl DatabaseAccess {
                 for room in rooms.iter() {
                     let room_id = room.get("room_id") ;
                     let created_at = room.get("created_at") ;
+                    let room_status = room.get("status") ;
                     rooms_.push(Rooms {
-                        room_id, created_at
+                        room_id, created_at, status: room_status
                     }) ;
 
                 }

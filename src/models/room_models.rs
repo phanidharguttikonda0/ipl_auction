@@ -29,4 +29,5 @@ use chrono::{DateTime, Utc};
 pub struct Rooms {
     pub(crate) room_id: String,
     pub(crate) created_at: DateTime<Utc>,
+    pub status: String
 }
