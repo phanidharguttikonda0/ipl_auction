@@ -62,7 +62,7 @@ pub async fn feed_back(
     // SQL insert
     let query = r#"
         INSERT INTO user_feedback (user_id, feedback_type, rating_value, title, description)
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2::feedback_type_enum, $3, $4, $5)
     "#;
 
     let result = sqlx::query(query)
