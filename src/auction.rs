@@ -528,7 +528,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             // we need to add a state in redis
                             let skipped_count = redis_connection.mark_skipped(&room_id, participant_id).await.unwrap() ;
                             let live_participants_count = { app_state.rooms.read().await.get(&room_id).unwrap().len() } as u8;
-
+                            tracing::info!("total players skipped till now was {}", skipped_count) ;
                             if skipped_count == live_participants_count {
                                 if redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                     redis_connection.atomic_delete(&timer_key).await.expect("unable to delete the room inside skip");
