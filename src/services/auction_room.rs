@@ -800,16 +800,17 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                                 let mut rooms_lock = rooms.read().await; // acquire mutable write lock
                                 length = rooms_lock.get(&room_id).unwrap().len() ;
                             }
-                            let participant = redis_connection.get_participant(&room_id, current_bid.participant_id).await? ;
-                            let participant = match participant {
-                                Some(participant) => participant,
-                                None => {
-                                    continue;
-                                }
-                            };
+
                             tracing::info!("length of room {}", length) ;
                             let mut remaining_balance: f32 = 0.0 ;
                             if current_bid.bid_amount != 0.0 {
+                                let participant = redis_connection.get_participant(&room_id, current_bid.participant_id).await? ;
+                                let participant = match participant {
+                                    Some(participant) => participant,
+                                    None => {
+                                        continue;
+                                    }
+                                };
                                 remaining_balance = participant.balance -  current_bid.bid_amount;
                                 remaining_rtms = participant.remaining_rtms ;
                                 let total_players_brought = participant.total_players_brought + 1 ;
