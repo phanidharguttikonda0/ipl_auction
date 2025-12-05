@@ -26,7 +26,7 @@ CREATE TABLE user_feedback (
                                id BIGSERIAL PRIMARY KEY,
                                user_id UUID NULL,
                                feedback_type feedback_type_enum NOT NULL,
-                               rating_value INT NULL CHECK (rating_value BETWEEN 1 AND 5),
+                               rating_value SMALLINT NULL CHECK (rating_value BETWEEN 1 AND 5),
                                title VARCHAR(255) NOT NULL,
                                description TEXT NOT NULL,
                                created_at TIMESTAMP DEFAULT NOW()
