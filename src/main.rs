@@ -118,7 +118,7 @@ async fn routes() -> Router {
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
-        .route("/feedback", post(feed_back))
+        .route("/feedback", post(feed_back).layer(middleware::from_fn(middlewares::authentication::auth_check)))
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .nest("/admin", admin_routes())
