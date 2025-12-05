@@ -94,6 +94,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             Ok(participant_exists) => participant_exists,
             Err(err) => {
                 tracing::error!("unable to get the check participant in redis") ;
+                tracing::warn!("error was {}", err) ;
                 sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
                 return;
             }

@@ -424,7 +424,7 @@ impl RedisConnection {
     pub async fn is_skipped(&self, room_id: &str, participant_id: i32 ) -> Result<bool, redis::RedisError> {
         let mut conn = self.connection.clone();
         let key = format!("room:{}:skip_state", room_id);
-        let result: RedisResult<bool> = redis::cmd("HEXISTS").arg(&key).arg(participant_id).query_async::<bool>(&mut conn).await;
+        let result: RedisResult<bool> = redis::cmd("SISMEMBER").arg(&key).arg(participant_id).query_async::<bool>(&mut conn).await;
         match result {
             Ok(is_skipped) => Ok(is_skipped),
             Err(err) => Err(err),
@@ -434,7 +434,7 @@ impl RedisConnection {
     pub async fn check_participant(&self, room_id: &str, participant_id: i32) -> Result<bool, redis::RedisError>{
         let mut conn = self.connection.clone();
         let key = format!("room:{}:participants", room_id);
-        let result: RedisResult<bool> = redis::cmd("HEXISTS").arg(&key).arg(participant_id).query_async::<bool>(&mut conn).await;
+        let result: RedisResult<bool> = redis::cmd("SISMEMBER").arg(&key).arg(participant_id).query_async::<bool>(&mut conn).await;
         match result {
             Ok(is_participant) => Ok(is_participant),
             Err(err) => Err(err),
