@@ -591,14 +591,16 @@ impl RedisConnection {
     }
 
     pub async fn check_key_exists(&self, key: &str) -> Result<bool, redis::RedisError> {
-        tracing::info!("checking key exists redis function was called") ;
+        tracing::info!("checking key exists redis function was called");
+
         let mut conn = self.connection.clone();
-        let result: RedisResult<i32> = conn.exists(key).await ;
-        match result {
-            Ok(value) => Ok(value != 0),
-            Err(e) => Err(e)
-        }
-    } // this is enough to check whether the participant or the room exists or not
+
+        // EXISTS returns bool in redis-rs async API
+        let exists: bool = conn.exists(key).await?;
+
+        Ok(exists)
+    }
+    // this is enough to check whether the participant or the room exists or not
 
 
 
