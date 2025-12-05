@@ -245,7 +245,7 @@ impl RedisConnection {
         let key = format!("room:{}:participant:{}:meta", room_id, participant_id);
         let result: RedisResult<()> = redis::cmd("HINCRBY")
             .arg(&key)
-            .arg("rtm_count")
+            .arg("remaining_rtms")
             .arg(-1)
             .query_async::<()>(&mut conn)
             .await;
