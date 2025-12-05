@@ -3,31 +3,6 @@ use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 use crate::models::app_state::Player;
 
-#[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
-pub struct AuctionRoom {
-    pub current_bid: Option<Bid>,
-    pub participants: Vec<AuctionParticipant>,
-    pub current_player: Option<Player>,
-    pub pause: bool,
-    pub skip_count: HashMap<i32, bool>, // if a participant has been skipped, or he has not clicked the skip button
-    pub room_creator_id: i32
-} //  this is where we are going to store in redis with a key as room_id and value as auction_room
-
-impl AuctionRoom {
-    pub fn new(room_creator_id: i32) -> Self {
-        Self {
-            current_bid: None,
-            participants: Vec::new(),
-            current_player: None,
-            pause: false,
-            skip_count: HashMap::new(),
-            room_creator_id
-        }
-    }
-    pub fn add_participant(&mut self, participant: AuctionParticipant) {
-        self.participants.push(participant);
-    }
-}
 
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
 pub struct AuctionParticipant {
@@ -38,7 +13,7 @@ pub struct AuctionParticipant {
     pub remaining_rtms: i16,
     pub is_unmuted: bool,
     pub foreign_players_brought: u8
-}
+} // room_id:participant_id:meta is the key to get the participant from redis
 
 impl AuctionParticipant {
     pub fn new(id: i32, team_name: String, remaining_rtms: i16) -> Self {
@@ -54,8 +29,16 @@ impl AuctionParticipant {
     }
 }
 
+/*
+
+    For Current Player -> room_id:current_player
+
+*/
+
+pub type SkipState = HashMap<i32, bool>; //  room_id:skip_state is the key to get the skip state from redis
+
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
-pub struct Bid {
+pub struct Bid { // room_id:current_bid is the key to get the current bid from redis
     pub participant_id: i32,
     pub player_id: i32,
     pub bid_amount: f32,
@@ -76,6 +59,16 @@ impl Bid {
         }
     }
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomMeta {
+    pub pause: bool,
+    pub room_creator_id: i32,
+} // meta data of the room -> room_id:meta is the key to get the meta data from redis
+
+
+
 
 #[derive(Debug,Clone, Serialize, Deserialize)]
 pub struct BidOutput {
@@ -99,3 +92,8 @@ pub struct NewJoiner {
     pub balance: f32,
 }
 
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct ParticipantAudio {
+    pub participant_id: i32,
+    pub is_unmuted: bool
+}
