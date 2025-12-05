@@ -265,7 +265,7 @@ impl RedisConnection {
 
         let result : RedisResult<()> = redis::cmd("HSET")
             .arg(&key)
-            .arg("unmuted")
+            .arg("is_unmuted")
             .arg(if is_unmuted { 1 } else { 0 })
             .query_async::<()>(&mut conn)
             .await;
