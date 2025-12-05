@@ -156,6 +156,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     tracing::info!("getting all participants") ;
     // we need to send the remaining participants list over here
     let mut participants = redis_connection.list_participants(&room_id).await ;
+    // tracing::info!("participants were ---------> {:?}", participants.unwrap()) ;
     // before sending let's revamp the current active connections
     let mut participants = match participants {
         Ok(participants) => participants,
@@ -172,8 +173,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         }
     }
         participants.retain(|p| hashmap.contains_key(&p));
+    let mut participant_object: Vec<AuctionParticipant> = vec![];
+    for participant in participants.iter() {
+        let participant_obj = redis_connection.get_participant(&room_id, *participant).await.unwrap().unwrap() ;
+        participant_object.push(participant_obj) ;
+    }
         send_himself(
-            Message::from(serde_json::to_string(&participants).unwrap()),participant_id, &room_id, &app_state
+            Message::from(serde_json::to_string(&participant_object).unwrap()),participant_id, &room_id, &app_state
         ).await ; //> sending remaining participants their team name and participant_id
         tracing::info!("sent all active participants list to the participant") ;
 
