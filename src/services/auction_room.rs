@@ -424,9 +424,8 @@ impl RedisConnection {
             }
             next_bid_increment = round_two_decimals(bid.bid_amount + next_bid_increment) ;
             bid.bid_amount = next_bid_increment ;
-            self.set_current_bid(room_id, bid).await?;
         }
-
+        self.set_current_bid(room_id, bid).await?;
 
         if bid_expiry != 0 {
             conn.set_ex::<_,_, ()>(&timer_key, "active", bid_expiry as u64).await?;
