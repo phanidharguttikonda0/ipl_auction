@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use redis::aio::AsyncPushSender;
 use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
-use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, NewJoiner, RoomMeta};
+use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, NewJoiner, ParticipantAudio, RoomMeta};
 use crate::services::auction_room::{RedisConnection};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
@@ -239,6 +239,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 val = true ;
                             }
                             redis_connection.toggle_mute(&room_id, participant_id, val).await.expect("Unable to update mute and unmute status") ;
+                            broadcast_handler(Message::from(serde_json::to_string(&ParticipantAudio {
+                                participant_id,
+                                is_unmuted: val
+                            }).unwrap()), &room_id, &app_state).await ;
                         }else if text == "start" {
                             if redis_connection.get_room_meta(&room_id).await.unwrap().unwrap().room_creator_id != participant_id {
                                 send_himself(Message::text("You will not having permissions"), participant_id, &room_id, &app_state).await ;

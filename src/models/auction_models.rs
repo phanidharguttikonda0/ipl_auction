@@ -92,3 +92,8 @@ pub struct NewJoiner {
     pub balance: f32,
 }
 
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct ParticipantAudio {
+    pub participant_id: i32,
+    pub is_unmuted: bool
+}
