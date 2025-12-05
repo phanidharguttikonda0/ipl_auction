@@ -268,27 +268,54 @@ impl RedisConnection {
         Ok(participants)
     }
 
-    pub async fn get_current_player(&self, room_id: &str) -> Result<Option<Player>, redis::RedisError> {
+    pub async fn get_current_player(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<Player>, redis::RedisError> {
         let mut conn = self.connection.clone();
 
-        let key = format!("room:{}:current_player", room_id) ;
-        let result: RedisResult<Option<Player>> = redis::cmd("HMGET").
-             arg("id")
-            .arg("name")
-            .arg("base_price")
-            .arg("country")
-            .arg("role")
-            .arg("previous_team")
-            .arg("is_indian").query_async::<Option<Player>>(&mut conn).await;
+        let key = format!("room:{}:current_player", room_id);
 
-        match result {
-            Ok(player) => {
-                Ok(player)
-            },
-            Err(err) =>{
-                Err(err)
-            }
+        // HMGET returns tuple of Options
+        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>) =
+            redis::cmd("HMGET")
+                .arg(&key)
+                .arg("id")
+                .arg("name")
+                .arg("base_price")
+                .arg("country")
+                .arg("role")
+                .arg("previous_team")
+                .arg("is_indian")
+                .query_async(&mut conn)
+                .await?;
+
+        let (
+            id,
+            name,
+            base_price,
+            country,
+            role,
+            previous_team,
+            is_indian_raw,
+        ) = result;
+
+        // If id is None → no player stored
+        if id.is_none() {
+            return Ok(None);
         }
+
+        let player = Player {
+            id: id.unwrap(),
+            name: name.unwrap_or_default(),
+            base_price: base_price.unwrap_or_default(),
+            country: country.unwrap_or_default(),
+            role: role.unwrap_or_default(),
+            previous_team: previous_team.unwrap_or_default(),
+            is_indian: is_indian_raw.unwrap_or(0) == 1,
+        };
+
+        Ok(Some(player))
     }
 
     pub async fn get_current_bid(&self, room_id: &str) -> Result<Bid, redis::RedisError> {
