@@ -298,7 +298,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 If previously the same participant has send the bid, then that shouldn't be considered
 
                             */
-                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                             let participant = redis_connection.get_participant(&room_id, participant_id).await.unwrap().unwrap() ;
                             let current_player = redis_connection.get_current_player(&room_id).await.unwrap().unwrap() ;
                             // if this key exists in the redis then only bids takes place
@@ -428,7 +428,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 tracing::info!("rtm was being accepted") ;
                                 redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
                                 // accepting the bid
-                                let bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                                let bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                                 let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                                 // adding the bid to the redis
                                 redis_connection.update_current_bid(&room_id, bid, 1).await.unwrap() ;
@@ -438,7 +438,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                         }else if text == "instant-rtm-cancel" {
                             tracing::info!("cancelling the rtm instantly, where the previous team , don't want to use the rtm for the current player") ;
                             redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
-                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                             current_bid.rtm_bid = true ;
                             redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM"), &room_id, &app_state).await ;
@@ -446,7 +446,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             tracing::info!("cancelling the offer by the highest bidder") ;
                             redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
                             // now we are going to send the same bid with expiry 0
-                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                            let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                             current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
                             redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), &room_id, &app_state).await ;
@@ -457,7 +457,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             if redis_connection.check_key_exists(&rtm_timer_key).await.unwrap() { // if normal bids were not taking place on in that scenario
                                 redis_connection.atomic_delete(&rtm_timer_key).await.unwrap();
                                 // rtm-amount eg : rtm-5.00 means increasing 5.00cr from the current price
-                                let mut bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                                let mut bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
 
                                 let amount = text.split("-").collect::<Vec<&str>>()[1].parse::<f32>().unwrap() ;
 
@@ -518,7 +518,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             if skipped_count == live_participants_count {
                                 if redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                     redis_connection.atomic_delete(&timer_key).await.expect("unable to delete the room inside skip");
-                                    let current_bid = redis_connection.get_current_bid(&room_id).await.unwrap() ;
+                                    let current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                                     redis_connection.update_current_bid(&room_id, current_bid,1).await.unwrap() ;
                                 }else {
                                     let message = "At this Stage Skip won't work";

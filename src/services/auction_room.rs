@@ -72,10 +72,20 @@ impl RedisConnection {
         Ok(())
     }
 
-    pub async fn get_participant(&self, room_id: &str, participant_id: i32) -> Result<Option<AuctionParticipant>, redis::RedisError> {
+    pub async fn get_participant(
+        &self,
+        room_id: &str,
+        participant_id: i32,
+    ) -> Result<Option<AuctionParticipant>, redis::RedisError> {
         let mut conn = self.connection.clone();
+
         let key = format!("room:{}:participant:{}:meta", room_id, participant_id);
-        let values: Option<(String, f32, u8, i16, u8, u8)> = redis::cmd("HMGET")
+
+        // HMGET must return a tuple of Options
+        let (team_name, balance, total_players_brought,
+            remaining_rtms, is_unmuted_raw, foreign_players_brought)
+            : (Option<String>, Option<f32>, Option<u8>, Option<i16>, Option<u8>, Option<u8>)
+            = redis::cmd("HMGET")
             .arg(&key)
             .arg("team_name")
             .arg("balance")
@@ -83,53 +93,62 @@ impl RedisConnection {
             .arg("remaining_rtms")
             .arg("is_unmuted")
             .arg("foreign_players_brought")
-            .query_async::<Option<(String, f32, u8, i16, u8, u8)>>(&mut conn).await?;
+            .query_async(&mut conn)
+            .await?;
 
-        let values = match values {
-            Some(values) => values,
-            None => return Ok(None)
-        } ;
+        // If team_name is None, assume participant does not exist
+        let Some(team_name) = team_name else {
+            return Ok(None);
+        };
+
         let participant = AuctionParticipant {
             id: participant_id,
-            team_name: values.0,
-            balance: values.1,
-            total_players_brought: values.2,
-            remaining_rtms: values.3,
-            is_unmuted: if values.4 == 1 { true }else { false },
-            foreign_players_brought: values.5
+            team_name,
+            balance: balance.unwrap_or_default(),
+            total_players_brought: total_players_brought.unwrap_or(0),
+            remaining_rtms: remaining_rtms.unwrap_or(0),
+            is_unmuted: is_unmuted_raw.unwrap_or(1) == 1,
+            foreign_players_brought: foreign_players_brought.unwrap_or(0),
         };
+
         Ok(Some(participant))
     }
 
-    pub async fn get_room_meta(&self, room_id: &str) -> Result<Option<RoomMeta>, redis::RedisError> {
+
+    pub async fn get_room_meta(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<RoomMeta>, redis::RedisError> {
         let mut conn = self.connection.clone();
 
         let key = format!("room:{}:meta", room_id);
 
-        let values: Option<(bool, i32)> =
+        // HMGET returns Option<T> for each field
+        let (pause_raw, creator_id):
+            (Option<i32>, Option<i32>) =
             redis::cmd("HMGET")
                 .arg(&key)
                 .arg("pause")
                 .arg("room_creator_id")
-                .query_async::<Option<(bool, i32)>>(&mut conn)
+                .query_async(&mut conn)
                 .await?;
 
-        if let Some((
-                        pause,
-                        creator_id
-                    )) = values
-        {
-            let meta = RoomMeta {
-                pause,
-                room_creator_id: creator_id,
-            };
+        // If pause is None, then meta does not exist
+        let Some(pause_raw) = pause_raw else {
+            return Ok(None);
+        };
 
-            Ok(Some(meta))
-        } else {
-            Ok(None)
-        }
+        // creator_id must exist, but default if missing
+        let creator_id = creator_id.unwrap_or(0);
 
+        let meta = RoomMeta {
+            pause: pause_raw == 1,
+            room_creator_id: creator_id,
+        };
+
+        Ok(Some(meta))
     }
+
 
     pub async fn set_pause(&self, room_id: &str, pause_status: bool) -> Result<(), redis::RedisError> {
         let mut conn = self.connection.clone();
@@ -318,14 +337,17 @@ impl RedisConnection {
         Ok(Some(player))
     }
 
-    pub async fn get_current_bid(&self, room_id: &str) -> Result<Bid, redis::RedisError> {
+    pub async fn get_current_bid(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<Bid>, redis::RedisError> {
         let mut conn = self.connection.clone();
 
         let key = format!("room:{}:current_bid", room_id);
 
-        // Read all fields in a single HMGET
         let (participant_id, player_id, bid_amount, base_price, is_rtm, rtm_bid):
-            (i32, i32, f32, f32, i32, i32) = redis::cmd("HMGET")
+            (Option<i32>, Option<i32>, Option<f32>, Option<f32>, Option<i32>, Option<i32>)
+            = redis::cmd("HMGET")
             .arg(&key)
             .arg("participant_id")
             .arg("player_id")
@@ -333,20 +355,24 @@ impl RedisConnection {
             .arg("base_price")
             .arg("is_rtm")
             .arg("rtm_bid")
-            .query_async::<(i32, i32, f32, f32, i32, i32)>(&mut conn)
+            .query_async(&mut conn)
             .await?;
 
-        let bid = Bid {
-            participant_id,
-            player_id,
-            bid_amount,
-            base_price,
-            is_rtm: is_rtm == 1,
-            rtm_bid: rtm_bid == 1,
+        // If no participant_id, then no current bid exists in Redis
+        let Some(participant_id) = participant_id else {
+            return Ok(None);
         };
 
-        Ok(bid)
+        Ok(Some(Bid {
+            participant_id,
+            player_id: player_id.unwrap_or_default(),
+            bid_amount: bid_amount.unwrap_or_default(),
+            base_price: base_price.unwrap_or_default(),
+            is_rtm: is_rtm.unwrap_or(0) == 1,
+            rtm_bid: rtm_bid.unwrap_or(0) == 1,
+        }))
     }
+
 
     pub async fn set_current_bid(&self, room_id: &str, bid: Bid) -> Result<(), redis::RedisError> {
         let mut conn = self.connection.clone();
@@ -618,7 +644,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
         tracing::info!("room_id from that expiry key was {}", room_id);
         tracing::info!("we are going to use the key to broadcast") ;
 
-                let current_bid = redis_connection.get_current_bid(&room_id).await?;
+                let current_bid = redis_connection.get_current_bid(&room_id).await?.unwrap();
                 let room_meta = redis_connection.get_room_meta(&room_id).await? ;
                 let room_meta: RoomMeta = match room_meta {
                    Some(room_meta) => room_meta,
@@ -684,7 +710,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     })).expect("Error While update balance to the unbounded channel") ;
                     tracing::info!("successfully updated the balance in the psql") ;
                     tracing::info!("updating in the redis along with the balance and bid") ;
-                    let bid_ = (Bid::new(0, 0,0.0,0.0, false, false)) ;
+                    let bid_ = Bid::new(0, 0,0.0,0.0, false, false) ;
                     redis_connection.reset_skip(&room_id).await.expect("error while resetting skip_count") ;
                     // bid expiry zero means it will not use timer just update the current bid value
                     redis_connection.update_current_bid(&room_id, bid_, 0).await.expect("") ;
