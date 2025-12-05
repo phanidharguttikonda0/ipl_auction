@@ -11,8 +11,8 @@ use serde_json::json;
 
 pub async fn feed_back(
     State(app_state): State<Arc<AppState>>,
-    Extension(user): Extension<Claims>,
     Json(feedback): Json<FeedBackRequest>,
+    Extension(user): Extension<Claims>,
 ) -> impl IntoResponse {
     tracing::info!("entered feedback controller");
 
