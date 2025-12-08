@@ -14,7 +14,7 @@ use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use crate::models;
 use crate::models::authentication_models::Claims;
-use crate::models::background_db_tasks::DBCommands;
+use crate::models::background_db_tasks::DBCommandsAuctionRoom;
 use crate::models::room_models::Participant;
 use crate::models::webRTC_models::SignalingMessage;
 use crate::services::other::get_previous_team_full_name;
@@ -281,7 +281,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
                                             if player.id == 1 {
                                                 // // changing room-status
-                                                app_state.database_execute_task.send(DBCommands::UpdateRoomStatus(models::background_db_tasks::RoomStatus{
+                                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRoomStatus(models::background_db_tasks::RoomStatus{
                                                     room_id: room_id.clone(),
                                                     status: "in_progress".to_string(),
                                                 })).expect("Error while sending room_status to a unbounded channel") ;

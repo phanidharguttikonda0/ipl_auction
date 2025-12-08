@@ -665,7 +665,7 @@ use axum::extract::ws::{Message};
 use futures_util::future::err;
 use serde_json::Error;
 use crate::models;
-use crate::models::background_db_tasks::DBCommands;
+use crate::models::background_db_tasks::{DBCommandsAuctionRoom};
 use crate::models::room_models::Participant;
 use crate::services::other::get_previous_team_full_name;
 
@@ -732,7 +732,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         // we are going to update the rtms of the user
                        // redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
                         // we are going to update in the sql as well.
-                        app_state.database_execute_task.send(DBCommands::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
                             id: bid.participant_id
                         })).expect("Error while sending participant id for updating rtms to a unbounded channel") ;
                         redis_connection.decrement_rtm(&room_id, participant_id).await? ;
@@ -740,7 +740,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                     }
                     // we are going to sell the player to the person,
                     tracing::info!("player was a sold player") ;
-                    app_state.database_execute_task.send(DBCommands::PlayerSold(models::background_db_tasks::SoldPlayer {
+                    app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(models::background_db_tasks::SoldPlayer {
                         room_id: room_id.clone(),
                         player_id: bid.player_id,
                         participant_id: bid.participant_id,
@@ -754,7 +754,7 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                         for a new player brought, we need to update balance total players brought, foreign player
                     */
                     // updating the participant balance in the participant table
-                    app_state.database_execute_task.send(DBCommands::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
+                    app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
                         participant_id: bid.participant_id,
                         remaining_balance
                     })).expect("Error While update balance to the unbounded channel") ;
@@ -895,21 +895,21 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
                             // -------------------- over here we need to add the player to the sold player list with room-id and player-id
                             if current_bid.bid_amount != 0.0 {
                                 tracing::info!("player was a sold player") ;
-                                app_state.database_execute_task.send(DBCommands::PlayerSold(models::background_db_tasks::SoldPlayer {
+                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(models::background_db_tasks::SoldPlayer {
                                     room_id: room_id.clone(),
                                     player_id: current_bid.player_id,
                                     participant_id: current_bid.participant_id,
                                     bid_amount: current_bid.bid_amount
                                 })).expect("Error While adding Player sold to the unbounded channel") ;
                                 // updating the participant balance in the participant table
-                                app_state.database_execute_task.send(DBCommands::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
+                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
                                     participant_id: current_bid.participant_id,
                                     remaining_balance
                                 })).expect("Error While update balance to the unbounded channel") ;
                                 tracing::info!("successfully updated the balance in the psql") ;
                             }else {
                                 tracing::info!("player was an unsold player") ;
-                                app_state.database_execute_task.send(DBCommands::PlayerUnSold(models::background_db_tasks::UnSoldPlayer {
+                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerUnSold(models::background_db_tasks::UnSoldPlayer {
                                     room_id: room_id.clone(),
                                     player_id: current_bid.player_id
                                 })).expect("Error While adding Player Unsold to the unbounded channel") ;
