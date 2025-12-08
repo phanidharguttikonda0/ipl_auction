@@ -48,6 +48,12 @@ pub async fn authentication_handler(
         // ─────────────────────────────────────────────────────────────
         // 3️⃣ NEW USER → favorite_team is REQUIRED
         // ─────────────────────────────────────────────────────────────
+        /*
+        
+            over here we are going to add a message to the message queue to add the players geolocations
+            
+            
+        */
         if details.favorite_team.is_none() || details.favorite_team.as_ref().unwrap().is_empty() {
             tracing::warn!("New user did NOT send favorite_team → REJECTING");
             return Ok((

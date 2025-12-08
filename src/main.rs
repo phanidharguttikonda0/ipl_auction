@@ -19,6 +19,7 @@ use crate::services::other::load_players_to_redis;
 use tower_http::cors::{CorsLayer, Any};
 use tower::ServiceBuilder;
 use crate::controllers::others::feed_back;
+use crate::controllers::profile::update_favorite_team;
 use crate::models::background_db_tasks::DBCommands;
 use crate::routes::admin_routes::admin_routes;
 use crate::services::background_db_tasks_runner::background_tasks_executor;
@@ -119,6 +120,7 @@ async fn routes() -> Router {
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
         .route("/feedback", post(feed_back).layer(middleware::from_fn(middlewares::authentication::auth_check)))
+        .route("/update-favorite-team/{new_team}", get(update_favorite_team)).layer(middleware::from_fn(middlewares::authentication::auth_check))
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .nest("/admin", admin_routes())

@@ -610,4 +610,26 @@ impl DatabaseAccess {
         }
     }
 
+    
+    pub async fn update_favorite_team(&self, user_id: i32, favorite_team: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("updating favorite team for user {}", user_id) ;
+
+        let result = sqlx::query("update users set favorite_team=$1 where id=$2")
+            .bind(&favorite_team)
+            .bind(user_id)
+            .execute(&self.connection).await ;
+
+        match result {
+            Ok(res) => {
+                tracing::info!("Successfully Updated to the new team");
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("error while updating favorite team in db {}",err);
+                Err(err)
+            }
+        }
+
+    }
+
 }
