@@ -120,7 +120,7 @@ async fn routes() -> Router {
         .nest("/players", players_routes())
         .route("/continue-with-google", post(controllers::authentication::authentication_handler))
         .route("/feedback", post(feed_back).layer(middleware::from_fn(middlewares::authentication::auth_check)))
-        .route("/update-favorite-team/{new_team}", post(update_favorite_team)).layer(middleware::from_fn(middlewares::authentication::auth_check))
+        .route("/update-favorite-team/{new_team}", get(update_favorite_team)).layer(middleware::from_fn(middlewares::authentication::auth_check))
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .nest("/admin", admin_routes())
