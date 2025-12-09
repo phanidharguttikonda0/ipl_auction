@@ -13,12 +13,12 @@ use crate::services::other::create_authorization_header;
 
 pub async fn authentication_handler(
     State(app_state): State<Arc<AppState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    // ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(details): Form<AuthenticationModel>,
 ) -> Result<Response, StatusCode> {
-    let ip_address = addr.ip() ;
+    // let ip_address = addr.ip() ;
     tracing::info!("*****************************************") ;
-    tracing::info!("ip address was {}", ip_address) ;
+    // tracing::info!("ip address was {}", ip_address) ;
     tracing::info!("******************************************") ;
     let gmail = details.gmail.trim();
     let username = gmail.split('@').next().unwrap_or("").to_string();
