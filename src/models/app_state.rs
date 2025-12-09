@@ -27,4 +27,5 @@ pub struct Player {
     pub role: String,
     pub previous_team: String,
     pub is_indian: bool,
+    pub profile_url: String
 }

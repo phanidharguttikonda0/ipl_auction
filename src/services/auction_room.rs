@@ -299,7 +299,7 @@ impl RedisConnection {
         let key = format!("room:{}:current_player", room_id);
 
         // HMGET returns tuple of Options
-        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>) =
+        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>, Option<String>) =
             redis::cmd("HMGET")
                 .arg(&key)
                 .arg("id")
@@ -309,6 +309,7 @@ impl RedisConnection {
                 .arg("role")
                 .arg("previous_team")
                 .arg("is_indian")
+                .arg("profile_url")
                 .query_async(&mut conn)
                 .await?;
 
@@ -320,6 +321,7 @@ impl RedisConnection {
             role,
             previous_team,
             is_indian_raw,
+            profile_url,
         ) = result;
 
         // If id is None → no player stored
@@ -335,6 +337,7 @@ impl RedisConnection {
             role: role.unwrap_or_default(),
             previous_team: previous_team.unwrap_or_default(),
             is_indian: is_indian_raw.unwrap_or(0) == 1,
+            profile_url: profile_url.unwrap_or_default(),
         };
 
         Ok(Some(player))
