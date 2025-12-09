@@ -5,7 +5,7 @@ use axum::extract::ws::Message;
 use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use crate::models::background_db_tasks::DBCommands;
+use crate::models::background_db_tasks::{DBCommandsAuction, DBCommandsAuctionRoom};
 use crate::services::auction::DatabaseAccess;
 use crate::services::auction_room::RedisConnection;
 
@@ -13,7 +13,8 @@ use crate::services::auction_room::RedisConnection;
 pub struct AppState {
     pub rooms: Arc<RwLock<HashMap<String, Vec<(i32, tokio::sync::mpsc::UnboundedSender<Message>)>>>>, // i32 is participant id
     pub database_connection: Arc<DatabaseAccess>,
-    pub database_execute_task: tokio::sync::mpsc::UnboundedSender<DBCommands>,
+    pub auction_room_database_task_executor: tokio::sync::mpsc::UnboundedSender<DBCommandsAuctionRoom>,
+    pub database_task_executor: tokio::sync::mpsc::UnboundedSender<DBCommandsAuction>,
     pub redis_connection: Arc<RedisConnection>
 }
 
@@ -26,4 +27,5 @@ pub struct Player {
     pub role: String,
     pub previous_team: String,
     pub is_indian: bool,
+    pub profile_url: String
 }

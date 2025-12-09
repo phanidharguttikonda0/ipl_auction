@@ -1,5 +1,6 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::{Form, Json};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -7,12 +8,18 @@ use serde_json::json;
 use sqlx::Row;
 use crate::models::app_state::AppState;
 use crate::models::authentication_models::{AuthenticationModel};
+use crate::models::background_db_tasks::{DBCommandsAuction, UserExternalDetails};
 use crate::services::other::create_authorization_header;
 
 pub async fn authentication_handler(
     State(app_state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(details): Form<AuthenticationModel>,
 ) -> Result<Response, StatusCode> {
+    let ip_address = addr.ip() ;
+    tracing::info!("*****************************************") ;
+    tracing::info!("ip address was {}", ip_address) ;
+    tracing::info!("******************************************") ;
     let gmail = details.gmail.trim();
     let username = gmail.split('@').next().unwrap_or("").to_string();
 
@@ -49,10 +56,10 @@ pub async fn authentication_handler(
         // 3️⃣ NEW USER → favorite_team is REQUIRED
         // ─────────────────────────────────────────────────────────────
         /*
-        
+
             over here we are going to add a message to the message queue to add the players geolocations
-            
-            
+
+
         */
         if details.favorite_team.is_none() || details.favorite_team.as_ref().unwrap().is_empty() {
             tracing::warn!("New user did NOT send favorite_team → REJECTING");
@@ -83,8 +90,18 @@ pub async fn authentication_handler(
 
         tracing::info!("Inserted NEW USER successfully");
 
+        tracing::info!("Now we are going to add this favorite team change to the database_task_executor message passing Queue") ;
+
+
         id = row.get("id");
         favorite_team = row.get("favorite_team");
+
+        app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
+            UserExternalDetails {
+                user_id: id,
+                ip_address: ip_address.to_string(),
+            }
+        )).expect("Unable to send the message to the db task executor");
     }
 
     // ────────────────────────────────────────────────────────────────

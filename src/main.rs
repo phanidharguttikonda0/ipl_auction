@@ -1,4 +1,5 @@
 use std::fmt::format;
+use std::net::SocketAddr;
 use std::sync::{Arc};
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
@@ -20,9 +21,9 @@ use tower_http::cors::{CorsLayer, Any};
 use tower::ServiceBuilder;
 use crate::controllers::others::feed_back;
 use crate::controllers::profile::update_favorite_team;
-use crate::models::background_db_tasks::DBCommands;
+use crate::models::background_db_tasks::{DBCommandsAuction, DBCommandsAuctionRoom};
 use crate::routes::admin_routes::admin_routes;
-use crate::services::background_db_tasks_runner::background_tasks_executor;
+use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor};
 
 mod models;
 mod auction;
@@ -47,18 +48,20 @@ async fn main() {
         tcp_listener = tokio::net::TcpListener::bind(format!("[::]:{}", port)).await.unwrap();
     }
     let app = routes().await;
-    axum::serve(tcp_listener, app).await.unwrap();
+    axum::serve(tcp_listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 
 }
 
 
 async fn routes() -> Router {
-    let (tx, mut rx) = mpsc::unbounded_channel::<DBCommands>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<DBCommandsAuctionRoom>();
+    let (tx_outside_auction_d, mut rx_outside_auction_d) = mpsc::unbounded_channel::<DBCommandsAuction>();
     let state = Arc::new(
         AppState {
             rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
             database_connection: Arc::from(DatabaseAccess::new().await),
-            database_execute_task: tx,
+            auction_room_database_task_executor: tx,
+            database_task_executor: tx_outside_auction_d,
             redis_connection: Arc::new(services::auction_room::RedisConnection::new().await)
         }
     ) ;
@@ -74,11 +77,18 @@ async fn routes() -> Router {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
-
+    
+    tracing::info!("tracing of the background tasks executor for inside auction room db tasks was called") ;
     let state_ = state.clone() ;
     tokio::spawn(async move {
         background_tasks_executor(state_, rx).await ;
     }) ;
+    
+    tracing::info!("tracing of the background tasks executor was called") ;
+    let state_ = state.clone() ;
+    tokio::spawn(async move {
+       background_task_executor_outside_auction_db_calls(state_, rx_outside_auction_d).await ; 
+    });
 
     // Configure CORS
     let cors = CorsLayer::new()
