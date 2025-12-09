@@ -13,12 +13,12 @@ use crate::services::other::create_authorization_header;
 
 pub async fn authentication_handler(
     State(app_state): State<Arc<AppState>>,
-    // ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Form(details): Form<AuthenticationModel>,
 ) -> Result<Response, StatusCode> {
-    // let ip_address = addr.ip() ;
+    let ip_address = addr.ip() ;
     tracing::info!("*****************************************") ;
-    // tracing::info!("ip address was {}", ip_address) ;
+    tracing::info!("ip address was {}", ip_address) ;
     tracing::info!("******************************************") ;
     let gmail = details.gmail.trim();
     let username = gmail.split('@').next().unwrap_or("").to_string();
@@ -95,13 +95,13 @@ pub async fn authentication_handler(
 
         id = row.get("id");
         favorite_team = row.get("favorite_team");
-        //
-        // app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
-        //     UserExternalDetails {
-        //         user_id: id,
-        //         ip_address: ip_address.to_string(),
-        //     }
-        // )).expect("Unable to send the message to the db task executor");
+
+        app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
+            UserExternalDetails {
+                user_id: id,
+                ip_address: ip_address.to_string(),
+            }
+        )).expect("Unable to send the message to the db task executor");
     }
 
     // ────────────────────────────────────────────────────────────────
