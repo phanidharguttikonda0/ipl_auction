@@ -93,15 +93,15 @@ pub async fn authentication_handler(
         tracing::info!("Now we are going to add this favorite team change to the database_task_executor message passing Queue") ;
 
 
-        id = row.get("id");
-        favorite_team = row.get("favorite_team");
-
-        app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
-            UserExternalDetails {
-                user_id: id,
-                ip_address: ip_address.to_string(),
-            }
-        )).expect("Unable to send the message to the db task executor");
+        // id = row.get("id");
+        // favorite_team = row.get("favorite_team");
+        //
+        // app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
+        //     UserExternalDetails {
+        //         user_id: id,
+        //         ip_address: ip_address.to_string(),
+        //     }
+        // )).expect("Unable to send the message to the db task executor");
     }
 
     // ────────────────────────────────────────────────────────────────
