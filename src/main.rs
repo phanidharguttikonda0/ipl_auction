@@ -96,6 +96,7 @@ async fn routes() -> Router {
             "https://ipl-auction.phani.services".parse().unwrap(),
             "http://localhost:3000".parse().unwrap(),
             "http://127.0.0.1:3000".parse().unwrap(),
+            "https://v0-ipl-auction-1ma5hg2bh-phanidharguttikonda0s-projects.vercel.app".parse().unwrap()
         ])
         .allow_methods([
             Method::GET,
