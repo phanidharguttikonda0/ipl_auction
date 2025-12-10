@@ -5,7 +5,7 @@ use axum::{Extension, Json};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde_json::json;
-use crate::models::app_state::{AppState};
+use crate::models::app_state::{AppState, PoolPlayer};
 use crate::models::authentication_models::Claims;
 use crate::models::player_models::{PlayerBrought, PlayerDetails, SoldPlayerOutput, TeamDetails, UnSoldPlayerOutput};
 
@@ -131,6 +131,27 @@ pub async fn get_unsold_players(State(app_state): State<Arc<AppState>>,Path((roo
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"message" : "server error while fetching unsold players"}))
             ))
+        }
+    }
+}
+
+
+pub async fn get_players_from_pool(State(app_state): State<Arc<AppState>>, Path(pool_no): Path<i16>) -> Result<(StatusCode, Json<Vec<PoolPlayer>>), (StatusCode, Json<serde_json::Value>)> {
+    tracing::info!("get players from the pool api was called") ;
+    match app_state.redis_connection.get_players_by_pool(pool_no).await { 
+        Ok(players) => {
+            Ok((
+                StatusCode::OK,
+                Json(players)
+                ))
+        },
+        Err(err) => {
+            tracing::error!("error occurred while getting players from pool") ;
+            tracing::error!("{}", err) ;
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"message" : "server error while fetching players from pool"}))
+                ))
         }
     }
 }

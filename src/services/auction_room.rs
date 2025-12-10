@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use redis::{AsyncCommands, Commands, RedisResult};
 use crate::auction::{bid_allowance_handler, broadcast_handler, send_message_to_participant};
-use crate::models::app_state::{AppState, Player};
+use crate::models::app_state::{AppState, Player, PoolPlayer};
 use crate::models::auction_models::{AuctionParticipant, Bid, RoomMeta, SoldPlayer};
 
 #[derive(Debug, Clone)]
@@ -299,7 +299,7 @@ impl RedisConnection {
         let key = format!("room:{}:current_player", room_id);
 
         // HMGET returns tuple of Options
-        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>, Option<String>) =
+        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>, Option<String>, Option<i16>) =
             redis::cmd("HMGET")
                 .arg(&key)
                 .arg("id")
@@ -310,6 +310,7 @@ impl RedisConnection {
                 .arg("previous_team")
                 .arg("is_indian")
                 .arg("profile_url")
+                .arg("pool_no")
                 .query_async(&mut conn)
                 .await?;
 
@@ -322,6 +323,7 @@ impl RedisConnection {
             previous_team,
             is_indian_raw,
             profile_url,
+            pool_no,
         ) = result;
 
         // If id is None → no player stored
@@ -338,6 +340,7 @@ impl RedisConnection {
             previous_team: previous_team.unwrap_or_default(),
             is_indian: is_indian_raw.unwrap_or(0) == 1,
             profile_url: profile_url.unwrap_or_default(),
+            pool_no: pool_no.unwrap_or(0),
         };
 
         Ok(Some(player))
@@ -500,78 +503,175 @@ impl RedisConnection {
     }
 
 
-
-
-    pub async fn load_players_to_redis(&self, players: Vec<Player>) -> Result<(), String> {
+    pub async fn load_players_to_redis(
+        &self,
+        players: Vec<Player>,
+    ) -> Result<(), String> {
         let mut conn = self.connection.clone();
-        let value: RedisResult<String> = conn.get("players").await ;
-        match value {
-            Ok(value) => {
-                tracing::info!("players already exists in redis") ;
-                let players: Result<Vec<Player>, Error> = serde_json::from_str(&value) ;
-                match players {
-                    Ok(players) =>{
-                        tracing::info!("we players from redis , let's check first player {:?}", players[0]) ;
-                        Ok(())
-                    },
-                    Err(err) => {
-                        tracing::info!("no players found in redis") ;
-                        Err("players not exists in redis".to_string())
-                    }
-                }
-            },
-            Err(e) => {
-                tracing::info!("players doesn't exists in redis") ;
-                tracing::info!("adding players to redis") ;
-                let _:() = conn.set("players", serde_json::to_string(&players).unwrap()).await.expect("unable to add players to redis");
-                Err("getting error while getting players key from redis".to_string())
+
+        // 1️⃣ Grouping players with pools
+        let mut pool_map: std::collections::HashMap<i16, Vec<Player>> =
+            std::collections::HashMap::new();
+
+        for player in players {
+            pool_map
+                .entry(player.pool_no)
+                .or_insert_with(Vec::new)
+                .push(player);
+        }
+
+        // 2️⃣ Iterating over each pool and checking whether that pool exists in redis if not adding
+        for (pool_no, pool_players) in pool_map {
+            let redis_key = format!("players_{}", pool_no);
+
+            // 3️⃣ Check if pool already exists
+            let exists: bool = conn
+                .exists(&redis_key)
+                .await
+                .map_err(|e| format!("Redis EXISTS failed: {}", e))?;
+
+            if exists {
+                tracing::info!(
+                "⏭️ Pool '{}' already exists, skipping",
+                redis_key
+            );
+                continue;
+            }
+
+            tracing::info!(
+            "✅ Loading {} players into '{}'",
+            pool_players.len(),
+            redis_key
+        );
+
+            // 4️⃣ Insert all players in this pool
+            for player in pool_players {
+                let player_json = serde_json::to_string(&player)
+                    .map_err(|e| format!("Serialize error: {}", e))?;
+
+                conn.hset::<_, _, _, ()>(
+                    &redis_key,
+                    player.id,
+                    player_json,
+                )
+                    .await
+                    .map_err(|e| format!("Redis HSET failed: {}", e))?;
             }
         }
+
+        Ok(())
     }
+
 
 
     pub async fn get_player(&self, player_id: i32, room_id: &str) -> Result<Player, redis::RedisError> {
+        tracing::info!("get player was called, getting player from redis") ;
         let mut conn = self.connection.clone();
-        if room_id.len() != 0 {
-            let current_player = self.get_current_player(room_id).await?;
 
-            match current_player {
-                Some(current_player) => {
-                    tracing::info!("current-player exists, so returning current-player, with out looping") ;
-                    if player_id == current_player.id {
-                        return Ok(current_player)
-                    }
-                },
-                None => {
-                    tracing::info!("no current player, so getting the player from redis players key")
+        // 1️⃣ If room_id has a current player → return immediately
+        if !room_id.is_empty() {
+            if let Some(current_player) = self.get_current_player(room_id).await? {
+                tracing::info!("current-player exists, returning it without checking Redis pools");
+                if current_player.id == player_id {
+                    return Ok(current_player);
                 }
-            } ;
-        }
-        // Get raw JSON string from Redis
-        let data: RedisResult<String> = conn.get("players").await;
-
-        match data {
-            Ok(json) => {
-                // Deserializing JSON → Vec<Player>
-                let players: Vec<Player> = serde_json::from_str(&json)
-                    .map_err(|_| redis::RedisError::from((redis::ErrorKind::TypeError, "Invalid JSON")))?;
-
-                tracing::info!("***************************") ;
-                tracing::info!("total players length in redis {}", players.len()) ;
-                tracing::info!("*******************************") ;
-                // Find the player by ID
-                if let Some(player) = players.into_iter().find(|p| p.id == player_id) {
-                    Ok(player)
-                } else {
-                    Err(redis::RedisError::from((redis::ErrorKind::TypeError, "Player not found")))
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Error while fetching players from Redis: {:?}", e);
-                Err(e)
+            } else {
+                tracing::info!("no current player found for this room, checking Redis pools");
             }
         }
+
+        // 2️⃣ Loop pools 1 to 12
+        for pool_no in 1..=12 {
+            let redis_key = format!("players_{}", pool_no);
+
+            tracing::info!("checking the pool_no {}", pool_no) ;
+            // Check if the player exists in this pool
+            let exists: bool = conn
+                .hexists::<_, _, bool>(&redis_key, player_id)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Redis HEXISTS error: {:?}", e);
+                    e
+                })?;
+
+            if exists {
+                tracing::info!("Player {} found in Redis key '{}'", player_id, redis_key);
+
+                // Fetch the player JSON
+                let json: String = conn
+                    .hget(&redis_key, player_id)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("Redis HGET error: {:?}", e);
+                        e
+                    })?;
+
+                // Deserialize into Player struct
+                let player: Player = serde_json::from_str(&json)
+                    .map_err(|_| {
+                        redis::RedisError::from((
+                            redis::ErrorKind::TypeError,
+                            "Invalid JSON for player object"
+                        ))
+                    })?;
+
+                return Ok(player);
+            }
+        }
+
+        // 3️⃣ If we reach here → player was not found
+        tracing::warn!("Player ID {} not found in any of the 12 Redis pools", player_id);
+
+        Err(redis::RedisError::from((
+            redis::ErrorKind::TypeError,
+            "Player not found"
+        )))
     }
+
+
+    pub async fn get_players_by_pool(
+        &self,
+        pool_no: i16,
+    ) -> Result<Vec<PoolPlayer>, redis::RedisError> {
+        tracing::info!("get players by pool was called, getting players from redis") ;
+        let mut conn = self.connection.clone();
+        let redis_key = format!("players_{}", pool_no);
+
+        // 1️⃣ Check if pool exists
+        let exists: bool = conn.exists(&redis_key).await?;
+        if !exists {
+            tracing::warn!("Pool {} not found in Redis", pool_no);
+            return Ok(Vec::new()); // empty pool, not an error
+        }
+
+        // 2️⃣ Get all values (JSON strings) from Redis hash
+        let players_json: Vec<String> = conn.hvals(&redis_key).await?;
+
+        // 3️⃣ Deserialize + map to PoolPlayer
+        let mut pool_players = Vec::with_capacity(players_json.len());
+        tracing::info!("players_json length is {}", players_json.len()) ;
+        for json in players_json {
+            let player: Player = serde_json::from_str(&json).map_err(|_| {
+                redis::RedisError::from((
+                    redis::ErrorKind::TypeError,
+                    "Invalid Player JSON in Redis",
+                ))
+            })?;
+
+            pool_players.push(PoolPlayer {
+                id: player.id,
+                name: player.name,
+                base_price: player.base_price as f32,
+                country: player.country,
+                role: player.role,
+                previous_team: player.previous_team,
+                is_indian: player.is_indian,
+            });
+        }
+
+        Ok(pool_players)
+    }
+
 
 
 
