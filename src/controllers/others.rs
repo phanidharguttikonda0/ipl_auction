@@ -35,7 +35,18 @@ pub async fn feed_back(
 
     // Validate title & description
     let title = match feedback.title.clone() {
-        Some(t) if !t.trim().is_empty() => t,
+        Some(t) => {
+            if t.trim().is_empty() && feedback_type != "rating" {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "title is required"})),
+                );
+            }else if t.trim().is_empty() && feedback_type == "rating" {
+                String::from("Nothing")
+            }else {
+                t
+            }
+        },
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -45,7 +56,18 @@ pub async fn feed_back(
     };
 
     let description = match feedback.description.clone() {
-        Some(d) if !d.trim().is_empty() => d,
+        Some(d) => {
+            if d.trim().is_empty() && feedback_type != "rating" {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "description is required"})),
+                );
+            }else if d.trim().is_empty() && feedback_type == "rating" {
+                String::from("Nothing")
+            }else {
+                d
+            }
+        },
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
