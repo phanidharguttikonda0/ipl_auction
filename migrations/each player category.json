@@ -1,0 +1,122 @@
+[
+  {
+    "base_price": 2,
+    "role": "AR",
+    "player_count": 39
+  },
+  {
+    "base_price": 2,
+    "role": "BAT",
+    "player_count": 44
+  },
+  {
+    "base_price": 2,
+    "role": "BOWL",
+    "player_count": 46
+  },
+  {
+    "base_price": 1.5,
+    "role": "AR",
+    "player_count": 10
+  },
+  {
+    "base_price": 1.5,
+    "role": "BAT",
+    "player_count": 7
+  },
+  {
+    "base_price": 1.5,
+    "role": "BOWL",
+    "player_count": 10
+  },
+  {
+    "base_price": 1.25,
+    "role": "AR",
+    "player_count": 8
+  },
+  {
+    "base_price": 1.25,
+    "role": "BAT",
+    "player_count": 4
+  },
+  {
+    "base_price": 1.25,
+    "role": "BOWL",
+    "player_count": 6
+  },
+  {
+    "base_price": 1,
+    "role": "AR",
+    "player_count": 9
+  },
+  {
+    "base_price": 1,
+    "role": "BAT",
+    "player_count": 5
+  },
+  {
+    "base_price": 1,
+    "role": "BOWL",
+    "player_count": 9
+  },
+  {
+    "base_price": 0.75,
+    "role": "AR",
+    "player_count": 28
+  },
+  {
+    "base_price": 0.75,
+    "role": "BAT",
+    "player_count": 25
+  },
+  {
+    "base_price": 0.75,
+    "role": "BOWL",
+    "player_count": 39
+  },
+  {
+    "base_price": 0.5,
+    "role": "AR",
+    "player_count": 1
+  },
+  {
+    "base_price": 0.5,
+    "role": "BAT",
+    "player_count": 3
+  },
+  {
+    "base_price": 0.5,
+    "role": "BOWL",
+    "player_count": 3
+  },
+  {
+    "base_price": 0.4,
+    "role": "AR",
+    "player_count": 2
+  },
+  {
+    "base_price": 0.4,
+    "role": "BAT",
+    "player_count": 1
+  },
+  {
+    "base_price": 0.4,
+    "role": "BOWL",
+    "player_count": 2
+  },
+  {
+    "base_price": 0.3,
+    "role": "AR",
+    "player_count": 118
+  },
+  {
+    "base_price": 0.3,
+    "role": "BAT",
+    "player_count": 103
+  },
+  {
+    "base_price": 0.3,
+    "role": "BOWL",
+    "player_count": 101
+  }
+]

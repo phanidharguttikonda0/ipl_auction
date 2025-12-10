@@ -27,5 +27,18 @@ pub struct Player {
     pub role: String,
     pub previous_team: String,
     pub is_indian: bool,
-    pub profile_url: String
+    pub profile_url: String,
+    pub pool_no: i16
+}
+
+
+#[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
+pub struct PoolPlayer {
+    pub id: i32,
+    pub name: String,
+    pub base_price: f32,
+    pub country: String,
+    pub role: String,
+    pub previous_team: String,
+    pub is_indian: bool,
 }

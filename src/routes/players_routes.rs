@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use axum::{middleware, Router};
 use axum::routing::get;
-use crate::controllers::player::{get_sold_players, get_team_details, get_team_players, get_unsold_players};
+use crate::controllers::player::{get_players_from_pool, get_sold_players, get_team_details, get_team_players, get_unsold_players};
 use crate::models::app_state::AppState;
 
 pub fn players_routes() -> Router<Arc<AppState>>{
@@ -10,6 +10,7 @@ pub fn players_routes() -> Router<Arc<AppState>>{
         .route("/get-team-players/{participant_id}", get(get_team_players))
         .route("/get-unsold-players/{room_id}/{page_no}/{offset}", get(get_unsold_players))
         .route("/get-sold-players/{room_id}/{page_no}/{offset}", get(get_sold_players))
+        .route("/get-pool/{pool_id}", get(get_players_from_pool))
         .layer(middleware::from_fn(crate::middlewares::authentication::auth_check))
 }
 
