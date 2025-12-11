@@ -186,15 +186,31 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
 
 
-    tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if let Err(err) = sender.send(msg).await {
-                tracing::warn!("WebSocket send failed: {}", err);
-                break; // stopping loop as a client disconnected
+    tokio::spawn({
+        let room_id = room_id.clone();
+        let participant_id = participant_id;
+        let app_state = app_state.clone();
+
+        async move {
+            while let Some(msg) = rx.recv().await {
+                if let Err(err) = sender.send(msg).await {
+                    tracing::warn!("WebSocket send failed: {}", err);
+
+                    // 🔥 Remove this participant from the room
+                    let mut rooms = app_state.rooms.write().await;
+                    if let Some(vec) = rooms.get_mut(&room_id) {
+                        vec.retain(|(id, _)| *id != participant_id);
+                    }
+                    drop(rooms);
+
+                    break; // stop ONLY this user's forwarding task
+                }
             }
+
+            tracing::info!("Forwarding task ended for {}", participant_id);
         }
-        tracing::info!("Message forwarding task ended");
     });
+
 
 
 
