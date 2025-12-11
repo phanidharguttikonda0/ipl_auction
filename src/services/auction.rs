@@ -374,8 +374,10 @@ impl DatabaseAccess {
     pub async fn get_rooms(&self, user_id: i32, timestamp: &str, per_page: i32, room_id: &str) -> Result<Vec<Rooms>, sqlx::Error> {
 
         let timestamp: Option<&str> = if timestamp == "0" {
+            tracing::info!("timestamp was 0") ;
             None
         }else {
+            tracing::info!("timestamp was {}", timestamp) ;
             Some(timestamp)
         } ;
         let rooms = sqlx::query(
