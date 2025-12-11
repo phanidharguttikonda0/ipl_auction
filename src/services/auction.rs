@@ -371,27 +371,38 @@ impl DatabaseAccess {
 
     }
 
-    pub async fn get_rooms(&self, user_id: i32, page_number: i32, per_page: i32) -> Result<Vec<Rooms>, sqlx::Error> {
-        let offset = (page_number - 1) * per_page;
+    pub async fn get_rooms(&self, user_id: i32, timestamp: &str, per_page: i32, room_id: &str) -> Result<Vec<Rooms>, sqlx::Error> {
 
+        let timestamp: Option<&str> = if timestamp == "0" {
+            tracing::info!("timestamp was 0") ;
+            None
+        }else {
+            tracing::info!("timestamp was {}", timestamp) ;
+            Some(timestamp)
+        } ;
         let rooms = sqlx::query(
                     "
             SELECT
-                r.id::TEXT AS room_id,
-                r.created_at,
-                r.status::TEXT
-            FROM rooms r
-            JOIN participants p
-                ON r.id = p.room_id
-            WHERE p.user_id = $1
-            ORDER BY r.created_at DESC
-            LIMIT $2
-            OFFSET $3
+            r.id::TEXT AS room_id,
+            r.created_at,
+            r.status::TEXT
+        FROM rooms r
+        JOIN participants p
+            ON r.id = p.room_id
+        WHERE p.user_id = $1
+          AND (
+                $2::timestamptz IS NULL
+                OR (r.created_at, r.id) < ($2::timestamptz, $3::uuid)
+              )
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT $4;
+
             "
                 )
             .bind(user_id)
-            .bind(per_page)   // LIMIT
-            .bind(offset)     // OFFSET
+            .bind(timestamp)
+            .bind(room_id)
+            .bind(per_page)
             .fetch_all(&self.connection)
             .await;
 

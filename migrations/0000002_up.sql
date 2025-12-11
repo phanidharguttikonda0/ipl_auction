@@ -31,3 +31,5 @@ CREATE TABLE user_feedback (
                                description TEXT NOT NULL,
                                created_at TIMESTAMP DEFAULT NOW()
 ); -- we are going to take this request and add that into the database via a background task only
+CREATE INDEX idx_rooms_created_at_id_desc
+    ON rooms (created_at DESC, id DESC);

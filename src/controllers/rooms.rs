@@ -176,11 +176,14 @@ pub async fn join_room(State(app_state): State<Arc<AppState>>, Extension(user): 
     }
 }
 
-pub async fn get_rooms_played(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((page_number, per_page)): Path<(i32,i32)>) ->  Result<(StatusCode, Json<Vec<Rooms>>),(StatusCode, Json<serde_json::Value>)> {
+pub async fn get_rooms_played(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((per_page,room_id,last_record_time_stamp)): Path<(i32,String,String)>) ->  Result<(StatusCode, Json<Vec<Rooms>>),(StatusCode, Json<serde_json::Value>)> {
     // returns the room-ids along with dates
     tracing::info!("getting rooms played by user-id {}", user.user_id);
     // we need to get from the participants not from the rooms table
-    match app_state.database_connection.get_rooms(user.user_id, page_number, per_page).await {
+    let decoded = base64::decode(last_record_time_stamp).expect("decoding the timestamp");
+    let timestamp = String::from_utf8(decoded).expect("decoding the timestamp");
+
+    match app_state.database_connection.get_rooms(user.user_id, &timestamp, per_page, &room_id).await {
         Ok(rooms) => {
             tracing::info!("got the rooms played by user-id {}", user.user_id);
             Ok((
