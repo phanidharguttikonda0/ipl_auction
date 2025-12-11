@@ -24,6 +24,7 @@ use crate::controllers::profile::update_favorite_team;
 use crate::models::background_db_tasks::{DBCommandsAuction, DBCommandsAuctionRoom};
 use crate::routes::admin_routes::admin_routes;
 use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor};
+use tracing_appender::non_blocking;
 
 mod models;
 mod auction;
@@ -35,7 +36,10 @@ mod middlewares;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // creating a writer to make all logs async and non blocking
+    let (non_blocking, _guard) = non_blocking(std::io::stdout());
+    tracing_subscriber::fmt().with_writer(non_blocking).init();
+
     dotenv().ok();
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
     tracing::info!("Starting server on port {}", port);
