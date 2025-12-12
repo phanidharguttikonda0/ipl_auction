@@ -10,7 +10,9 @@ use crate::models::app_state::AppState;
 use crate::models::authentication_models::{AuthenticationModel};
 use crate::models::background_db_tasks::{DBCommandsAuction, UserExternalDetails};
 use crate::services::other::create_authorization_header;
-
+/*
+     ip address was ::ffff:192.168.30.11 is an example i got from the logs of the server
+*/
 pub async fn authentication_handler(
     State(app_state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
