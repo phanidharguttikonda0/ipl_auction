@@ -372,7 +372,12 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                 }).unwrap()) ;
                                                 broadcast_handler(message,&room_id,&app_state).await ;
                                             }, Err(err) => {
+                                                if err.contains("Bid not allowed") {
+                                                    send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                                }else {
                                                     send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                                }
+
                                             }
                                         } ;
                                     }else {
@@ -475,7 +480,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 let bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                                 let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                                 // adding the bid to the redis
-                                redis_connection.update_current_bid(&room_id, bid, 1, participant_id, room_mode).await.unwrap() ;
+                                match redis_connection.update_current_bid(&room_id, bid, 1, participant_id, room_mode).await {
+                                    Ok(_) => {},
+                                    Err(err) => {
+                                        if err.contains("Bid not allowed") {
+                                            send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                        }else {
+                                            send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                        }
+                                    }
+                                };
                             }else {
                                 send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), &room_id, &app_state).await ;
                             }
@@ -524,7 +538,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // creating the new Bid
                                             let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
                                             // adding the bid to the redis
-                                            let _ = redis_connection.update_current_bid(&room_id, bid_, expiry_time, participant_id, room_mode).await.unwrap() ;
+                                            match redis_connection.update_current_bid(&room_id, bid_, expiry_time, participant_id, room_mode).await {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    if err.contains("Bid not allowed") {
+                                                        send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                                    }else {
+                                                        send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                                    }
+                                                }
+                                            };
                                             send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), &room_id, &app_state).await ;
                                             continue;
                                         }else if rtm_placer_participant_bid_allowance {
@@ -532,7 +555,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // delete the key and add the new bid with expiry 0 seconds
 
                                             // new bid
-                                            redis_connection.update_current_bid(&room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1, participant_id, room_mode).await.unwrap() ;
+                                            match redis_connection.update_current_bid(&room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1, participant_id, room_mode).await {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    if err.contains("Bid not allowed") {
+                                                        send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                                    }else {
+                                                        send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                                    }
+                                                }
+                                            };
                                             // send to the highest bidder the reason
                                             send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), &room_id, &app_state).await ;
                                             continue;

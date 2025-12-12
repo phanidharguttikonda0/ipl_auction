@@ -408,7 +408,7 @@ impl RedisConnection {
         Ok(())
     }
 
-    pub async fn update_current_bid(&self, room_id: &str, mut bid: Bid, bid_expiry: u8, participant_id: i32, strict_mode: bool) -> Result<f32, redis::RedisError>{
+    pub async fn update_current_bid(&self, room_id: &str, mut bid: Bid, bid_expiry: u8, participant_id: i32, strict_mode: bool) -> Result<f32, String>{
         let mut conn = self.connection.clone();
 
         let key = format!("room:{}:current_bid", room_id);
@@ -419,6 +419,7 @@ impl RedisConnection {
             timer_key = format!("auction:timer:rtms:{}", room_id)
         }
         let mut next_bid_increment = bid.bid_amount;
+        let mut allowed = true ;
         if bid.participant_id != 0 {
             if previous_bid_amount == 0.0 {
                 next_bid_increment = bid.base_price;
@@ -434,15 +435,25 @@ impl RedisConnection {
             bid.bid_amount = next_bid_increment;
             if participant_id != -1 {
                 let participant = self.get_participant(room_id, participant_id).await.expect("team name not found").expect("no participant found");
-                bid_allowance_handler(bid.bid_amount, participant.balance, participant.total_players_brought,strict_mode).await;
+                allowed = bid_allowance_handler(bid.bid_amount, participant.balance, participant.total_players_brought,strict_mode).await;
             }
         }
-        self.set_current_bid(room_id, bid).await?;
+        if allowed {
+            self.set_current_bid(room_id, bid).await.expect("failed to set current bid");
 
-        if bid_expiry != 0 {
-            conn.set_ex::<_,_, ()>(&timer_key, "active", bid_expiry as u64).await?;
+            if bid_expiry != 0 {
+                conn.set_ex::<_,_, ()>(&timer_key, "active", bid_expiry as u64).await.expect("failed to set timer key");
+            }
+            Ok(next_bid_increment)
+        }else{
+            let message ;
+            if strict_mode {
+                message = String::from("Bid not allowed, Check strict mode rules") ;
+            }else {
+                message = String::from("Bid not allowed") ;
+            }
+            Err(message)
         }
-        Ok(next_bid_increment)
     }
 
     pub async fn check_room_existence(&self, room_id: &str) -> Result<bool, redis::RedisError> {
