@@ -192,7 +192,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         ).await ; //> sending remaining participants their team name and participant_id
         tracing::info!("sent all active participants list to the participant") ;
 
-
+    let msg ;
+    if room_mode {
+        msg = Message::text("strict-mode") ;
+        send_himself(msg, participant_id, &room_id, &app_state).await ;
+    }
 
 
     tokio::spawn({
