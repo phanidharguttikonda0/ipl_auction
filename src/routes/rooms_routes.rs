@@ -7,7 +7,7 @@ use axum::middleware ;
 
 pub fn rooms_routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/create-room/{team_name}", get(create_room)) // from the authorization header we can get user-id
+        .route("/create-room/{team_name}/{is_strict_mode}", get(create_room)) // from the authorization header we can get user-id
         .route("/join-room-get-teams/{room_id}", get(get_remaining_teams))// it returns the remaining teams
         .route("/join-room/{room_id}/{team_name}", get(join_room)) // it returns the participant_id
         .route("/get-auctions-played/{per_page}/{room_id}/{last_record_time_stamp}", get(get_rooms_played)) // it going to return the list of room-ids participated by the user and along with date

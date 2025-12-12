@@ -61,9 +61,10 @@ impl DatabaseAccess {
 
 
 
-    pub async fn create_room(&self, user_id: i32) -> Result<String, sqlx::Error> {
-        let room = sqlx::query("insert into rooms (creator_id) values ($1) returning id")
+    pub async fn create_room(&self, user_id: i32, is_strict_mode: bool) -> Result<String, sqlx::Error> {
+        let room = sqlx::query("insert into rooms (creator_id, strict_mode) values ($1, $2) returning id")
             .bind(user_id)
+            .bind(is_strict_mode)
             .fetch_one(&self.connection).await ;
 
         match room {
@@ -159,6 +160,23 @@ impl DatabaseAccess {
                 let room_status: String = room_status.get("status") ;
                 tracing::info!("the room status for room_id {}  was {}", room_id, room_status) ;
                 Ok(room_status)
+            },
+            Err(err) => {
+                tracing::error!("getting error while getting room_status for room-id {}", room_id) ;
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn get_room_mode(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        let room_mode = sqlx::query("select strict_mode from rooms where id = $1")
+            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+            .fetch_one(&self.connection).await ;
+        match room_mode {
+            Ok(room_mode) =>{
+                let strict_mode: bool = room_mode.get("strict_mode") ;
+                tracing::info!("the room strict_mode for room_id {}  was {}", room_id, strict_mode) ;
+                Ok(strict_mode)
             },
             Err(err) => {
                 tracing::error!("getting error while getting room_status for room-id {}", room_id) ;

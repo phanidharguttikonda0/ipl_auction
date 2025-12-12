@@ -47,6 +47,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     */
     let redis_connection = app_state.redis_connection.clone();
     let room_status = app_state.database_connection.get_room_status(room_id.clone()).await ;
+    let room_mode = app_state.database_connection.get_room_mode(&room_id).await ;
+    let room_mode = match room_mode {
+       Ok(room_mode) => room_mode,
+        Err(err) =>{
+            tracing::error!("error in getting room mode {}", err) ;
+            sender.send(Message::text("Server Side Error, Unable to get room-mode")).await.expect("unable to send message");
+            return;
+        }
+    } ;
     let room_status = match room_status {
         Ok(room_status) => room_status,
         Err(err) => {
@@ -504,8 +513,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // here we need to check whether the rtm placer having that much enough money and as well the same other guy having that much enough money
                                     if rtm_placer_participant.remaining_rtms > 0 {
                                         let highest_bidder_participant = redis_connection.get_participant(&room_id, bid.participant_id).await.unwrap().unwrap() ;
-                                        let rtm_placer_participant_bid_allowance = bid_allowance_handler(new_amount, rtm_placer_participant.balance, rtm_placer_participant.total_players_brought).await ;
-                                        let highest_bidder_participant_allowance = bid_allowance_handler(new_amount, highest_bidder_participant.balance, highest_bidder_participant.total_players_brought).await ;
+                                        let rtm_placer_participant_bid_allowance = bid_allowance_handler(new_amount, rtm_placer_participant.balance, rtm_placer_participant.total_players_brought, room_mode).await ;
+                                        let highest_bidder_participant_allowance = bid_allowance_handler(new_amount, highest_bidder_participant.balance, highest_bidder_participant.total_players_brought, room_mode).await ;
                                         if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
                                             tracing::info!("both having money") ;
                                             // creating the new Bid
@@ -644,9 +653,10 @@ pub async fn handle_disconnect(room_id: &str, participant_id: i32, team_name: St
     // we are removing the disconnected client, such that the unbounded channel will not overload if queue is filled with multiple disconnected message to client
     let mut value = app_state.rooms.write().await ;
     let mut index: u8 = 0 ;
-
+    let mut user_exists = false ;
     for participant in value.get(room_id).unwrap().iter() {
         if participant.0 == participant_id {
+            user_exists = true ;
             break
         }
         index += 1 ;
@@ -656,7 +666,9 @@ pub async fn handle_disconnect(room_id: &str, participant_id: i32, team_name: St
         need to broadcast which participant has been disconnected, and when joins we are any way sending the message
     */
 
-    value.get_mut(room_id).unwrap().remove(index as usize);
+    if user_exists {
+        value.get_mut(room_id).unwrap().remove(index as usize);
+    }
     drop(value) ;
     broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name }).unwrap()), room_id, &app_state).await ;
 }
@@ -687,15 +699,64 @@ pub async fn send_himself(msg: Message, participant_id: i32,room_id: &str, state
     }
 }
 
-pub async fn bid_allowance_handler(current_bid: f32, balance: f32, total_players_brought: u8) -> bool {
-    let total_players_required: i8 = (15 - total_players_brought) as i8;
-    let money_required: f32 = (total_players_required) as f32 * 0.30 ;
-    if money_required <= (balance-current_bid) {
-        true
-    }else{
-        false
+pub async fn bid_allowance_handler(
+    current_bid: f32,
+    balance: f32,
+    total_players_brought: u8,
+    strict_mode: bool,
+) -> bool {
+
+
+    let remaining_balance = balance - current_bid;
+    if remaining_balance < 0.0 {
+        return false;
     }
+    // added a new mode for playing a strategic auction.
+    if strict_mode {
+        // -------------------------
+        // RULE A: GLOBAL LIMITS
+        // -------------------------
+        let min_required_balance = match total_players_brought {
+            0..=4 => 50.0,
+            5..=9 => 10.0,
+            10..=11 => 4.0,
+            12..=14 => 0.0,
+            _ => 0.0,
+        };
+
+        if remaining_balance < min_required_balance {
+            return false;
+        }
+
+        // -------------------------
+        // RULE B: PER-PLAYER BUFFER
+        // -------------------------
+        // Determine segment buffer
+        let (segment_max_players, buffer_per_player) = match total_players_brought {
+            0..=4 => (5, 5.0),
+            5..=9 => (10, 4.0),
+            10..=14 => (15, 1.0),
+            _ => (15, 0.0),
+        };
+
+        let remaining_players_in_segment =
+            (segment_max_players as i32 - total_players_brought as i32).max(0);
+
+        let required_buffer = remaining_players_in_segment as f32 * buffer_per_player;
+
+        if remaining_balance < required_buffer {
+            return false;
+        }
+
+        return true;
+    }
+
+    // FREE MODE LOGIC
+    let total_players_required = 15 - total_players_brought as i32;
+    let money_required = total_players_required as f32 * 0.30;
+    remaining_balance >= money_required
 }
+
 
 /*
     while generating use of RTM also , we need to make sure that the previous team has the ability to get foreign player or not.
