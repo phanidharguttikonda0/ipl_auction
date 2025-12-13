@@ -742,13 +742,14 @@ pub async fn bid_allowance_handler(
     strict_mode: bool,
 ) -> bool {
 
-
+    tracing::warn!("Strict mode was {}", strict_mode) ;
     let remaining_balance = balance - current_bid;
     if remaining_balance < 0.0 {
         return false;
     }
     // added a new mode for playing a strategic auction.
     if strict_mode {
+        tracing::warn!("Inside Strict Mode") ;
         // -------------------------
         // RULE A: GLOBAL LIMITS
         // -------------------------
@@ -783,7 +784,7 @@ pub async fn bid_allowance_handler(
         if remaining_balance < required_buffer {
             return false;
         }
-
+        tracing::warn!("this bid was allowed in the strict mode also") ;
         return true;
     }
 
