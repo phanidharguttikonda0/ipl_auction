@@ -9,7 +9,7 @@ use crate::models::authentication_models::Claims;
 use crate::models::room_models::{Participant, ParticipantResponse, ParticipantsWithTeam, Rooms};
 use crate::models::player_models::Teams;
 
-pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path(team_name) : Path<String>) -> impl IntoResponse  {
+pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user): Extension<Claims>, Path((team_name, is_strict_mode)) : Path<(String,bool)>) -> impl IntoResponse  {
     /*
         we are going to create a new room and then returning participant_id, and then in front-end, it will immediately
         create a websocket connection with the server, and the server will send all the details to the room if any
@@ -23,7 +23,7 @@ pub async fn create_room(State(app_state): State<Arc<AppState>>, Extension(user)
         ) ;
     }
     // first creating a room
-    match app_state.database_connection.create_room(user.user_id).await {
+    match app_state.database_connection.create_room(user.user_id, is_strict_mode).await {
         Ok(room_id) => {
             let participant_id = app_state.database_connection.add_participant(user.user_id, room_id.clone(), team_name.clone()).await.expect("Unable to add participant to the room");
             tracing::info!("created participant_id {} for the room_id {} and team_name {} ", participant_id, room_id, team_name);

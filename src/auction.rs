@@ -47,6 +47,15 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     */
     let redis_connection = app_state.redis_connection.clone();
     let room_status = app_state.database_connection.get_room_status(room_id.clone()).await ;
+    let room_mode = app_state.database_connection.get_room_mode(&room_id).await ;
+    let room_mode = match room_mode {
+       Ok(room_mode) => room_mode,
+        Err(err) =>{
+            tracing::error!("error in getting room mode {}", err) ;
+            sender.send(Message::text("Server Side Error, Unable to get room-mode")).await.expect("unable to send message");
+            return;
+        }
+    } ;
     let room_status = match room_status {
         Ok(room_status) => room_status,
         Err(err) => {
@@ -183,7 +192,11 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         ).await ; //> sending remaining participants their team name and participant_id
         tracing::info!("sent all active participants list to the participant") ;
 
-
+    let msg ;
+    if room_mode {
+        msg = Message::text("strict-mode") ;
+        send_himself(msg, participant_id, &room_id, &app_state).await ;
+    }
 
 
     tokio::spawn({
@@ -306,7 +319,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             message = Message::from(serde_json::to_string(&player).unwrap()) ;
                                             // here we are going to add the player as Bid to the redis
                                             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
-                                            redis_connection.update_current_bid(&room_id,bid, expiry_time).await.expect("unable to update the bid") ;
+                                            redis_connection.update_current_bid(&room_id,bid, expiry_time, -1, room_mode).await.expect("unable to update the bid") ;
 
 
                                     // broadcasting
@@ -350,7 +363,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // the participant has bided
                                     if current_bid.participant_id != participant_id {
                                         current_bid.participant_id = participant_id ;
-                                        let result =  redis_connection.update_current_bid(&room_id, current_bid, expiry_time).await ;
+                                        let result =  redis_connection.update_current_bid(&room_id, current_bid, expiry_time, participant_id, room_mode).await ;
                                         match result {
                                             Ok(amount) => {
                                                 let message = Message::from(serde_json::to_string(&BidOutput{
@@ -359,7 +372,12 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                 }).unwrap()) ;
                                                 broadcast_handler(message,&room_id,&app_state).await ;
                                             }, Err(err) => {
+                                                if err.contains("Bid not allowed") {
+                                                    send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                                }else {
                                                     send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                                }
+
                                             }
                                         } ;
                                     }else {
@@ -373,7 +391,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // we need update the current_bid as well
                                     current_bid.participant_id = 0 ;
                                     current_bid.bid_amount = 0.0 ;
-                                    redis_connection.update_current_bid(&room_id, current_bid, 0).await.unwrap() ;
+                                    redis_connection.update_current_bid(&room_id, current_bid, 0,-1,room_mode).await.unwrap() ;
                                     send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,&room_id,&app_state).await ;
                                 }
                             }
@@ -462,7 +480,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 let bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                                 let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                                 // adding the bid to the redis
-                                redis_connection.update_current_bid(&room_id, bid, 1).await.unwrap() ;
+                                match redis_connection.update_current_bid(&room_id, bid, 1, participant_id, room_mode).await {
+                                    Ok(_) => {},
+                                    Err(err) => {
+                                        if err.contains("Bid not allowed") {
+                                            send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                        }else {
+                                            send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                        }
+                                    }
+                                };
                             }else {
                                 send_message_to_participant(participant_id, String::from("Invalid RTM was not taken place"), &room_id, &app_state).await ;
                             }
@@ -471,7 +498,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             redis_connection.atomic_delete(&rtm_timer_key).await.unwrap() ;
                             let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                             current_bid.rtm_bid = true ;
-                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
+                            redis_connection.update_current_bid(&room_id, current_bid, 1, -1, room_mode).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM"), &room_id, &app_state).await ;
                         } else if text.contains("rtm-cancel") {
                             tracing::info!("cancelling the offer by the highest bidder") ;
@@ -479,7 +506,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             // now we are going to send the same bid with expiry 0
                             let mut current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                             current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
-                            redis_connection.update_current_bid(&room_id, current_bid, 1).await.unwrap() ;
+                            redis_connection.update_current_bid(&room_id, current_bid, 1, -1, room_mode).await.unwrap() ;
                             send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), &room_id, &app_state).await ;
                         } else if text.contains("rtm") {
                             tracing::info!("rtm was accepted with the following {}",text) ;
@@ -504,14 +531,23 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // here we need to check whether the rtm placer having that much enough money and as well the same other guy having that much enough money
                                     if rtm_placer_participant.remaining_rtms > 0 {
                                         let highest_bidder_participant = redis_connection.get_participant(&room_id, bid.participant_id).await.unwrap().unwrap() ;
-                                        let rtm_placer_participant_bid_allowance = bid_allowance_handler(new_amount, rtm_placer_participant.balance, rtm_placer_participant.total_players_brought).await ;
-                                        let highest_bidder_participant_allowance = bid_allowance_handler(new_amount, highest_bidder_participant.balance, highest_bidder_participant.total_players_brought).await ;
+                                        let rtm_placer_participant_bid_allowance = bid_allowance_handler(new_amount, rtm_placer_participant.balance, rtm_placer_participant.total_players_brought, room_mode).await ;
+                                        let highest_bidder_participant_allowance = bid_allowance_handler(new_amount, highest_bidder_participant.balance, highest_bidder_participant.total_players_brought, room_mode).await ;
                                         if rtm_placer_participant_bid_allowance && highest_bidder_participant_allowance {
                                             tracing::info!("both having money") ;
                                             // creating the new Bid
                                             let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
                                             // adding the bid to the redis
-                                            let _ = redis_connection.update_current_bid(&room_id, bid_, expiry_time).await.unwrap() ;
+                                            match redis_connection.update_current_bid(&room_id, bid_, expiry_time, participant_id, room_mode).await {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    if err.contains("Bid not allowed") {
+                                                        send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                                    }else {
+                                                        send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                                    }
+                                                }
+                                            };
                                             send_message_to_participant(bid.participant_id, format!("rtm-amount-{}", new_amount), &room_id, &app_state).await ;
                                             continue;
                                         }else if rtm_placer_participant_bid_allowance {
@@ -519,7 +555,16 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                             // delete the key and add the new bid with expiry 0 seconds
 
                                             // new bid
-                                            redis_connection.update_current_bid(&room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1).await.unwrap() ;
+                                            match redis_connection.update_current_bid(&room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1, participant_id, room_mode).await {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    if err.contains("Bid not allowed") {
+                                                        send_himself(Message::text(&err), participant_id, &room_id, &app_state).await ;
+                                                    }else {
+                                                        send_himself(Message::text("Technical Issue"), participant_id, &room_id, &app_state).await ;
+                                                    }
+                                                }
+                                            };
                                             // send to the highest bidder the reason
                                             send_message_to_participant(bid.participant_id, format!("no balance to accept the bid price of {}",new_amount), &room_id, &app_state).await ;
                                             continue;
@@ -534,7 +579,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     send_himself(Message::text("The current player is not in ur team previously"), participant_id, &room_id, &app_state).await ;
                                 }
                                 bid.rtm_bid = true ; // it will be rtm_bid , but for remaining rtms will be same, only thing is in subscriber making sure no infinite loop takes place, where we are going to inifinetly if there previous
-                                let _ = redis_connection.update_current_bid(&room_id, bid, 1).await.unwrap() ;
+                                let _ = redis_connection.update_current_bid(&room_id, bid, 1, -1, room_mode).await.unwrap() ;
                             }else {
                                 tracing::info!("Now no RTM bids were taking place") ;
                                 send_himself(Message::text("No RTM Bids are taking place"), participant_id, &room_id, &app_state).await ;
@@ -551,7 +596,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 if redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                     redis_connection.atomic_delete(&timer_key).await.expect("unable to delete the room inside skip");
                                     let current_bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
-                                    redis_connection.update_current_bid(&room_id, current_bid,1).await.unwrap() ;
+                                    redis_connection.update_current_bid(&room_id, current_bid,1, -1, room_mode).await.unwrap() ;
                                 }else {
                                     let message = "At this Stage Skip won't work";
                                     send_himself(Message::text(message), participant_id, &room_id, &app_state).await ;
@@ -644,9 +689,10 @@ pub async fn handle_disconnect(room_id: &str, participant_id: i32, team_name: St
     // we are removing the disconnected client, such that the unbounded channel will not overload if queue is filled with multiple disconnected message to client
     let mut value = app_state.rooms.write().await ;
     let mut index: u8 = 0 ;
-
+    let mut user_exists = false ;
     for participant in value.get(room_id).unwrap().iter() {
         if participant.0 == participant_id {
+            user_exists = true ;
             break
         }
         index += 1 ;
@@ -656,7 +702,9 @@ pub async fn handle_disconnect(room_id: &str, participant_id: i32, team_name: St
         need to broadcast which participant has been disconnected, and when joins we are any way sending the message
     */
 
-    value.get_mut(room_id).unwrap().remove(index as usize);
+    if user_exists {
+        value.get_mut(room_id).unwrap().remove(index as usize);
+    }
     drop(value) ;
     broadcast_handler(Message::from(serde_json::to_string(&Participant { participant_id, team_name }).unwrap()), room_id, &app_state).await ;
 }
@@ -687,15 +735,83 @@ pub async fn send_himself(msg: Message, participant_id: i32,room_id: &str, state
     }
 }
 
-pub async fn bid_allowance_handler(current_bid: f32, balance: f32, total_players_brought: u8) -> bool {
-    let total_players_required: i8 = (15 - total_players_brought) as i8;
-    let money_required: f32 = (total_players_required) as f32 * 0.30 ;
-    if money_required <= (balance-current_bid) {
-        true
-    }else{
-        false
+pub async fn bid_allowance_handler(
+    current_bid: f32,
+    balance: f32,
+    total_players_brought: u8,
+    strict_mode: bool,
+) -> bool {
+
+    tracing::warn!("Strict mode was {}", strict_mode) ;
+    let remaining_balance = balance - current_bid;
+    if remaining_balance < 0.0 {
+        return false;
     }
+    // added a new mode for playing a strategic auction.
+    if strict_mode {
+        tracing::warn!("Inside Strict Mode") ;
+        // -------------------------
+        // RULE A: GLOBAL LIMITS
+        // -------------------------
+        let min_required_balance = match total_players_brought {
+            0..=4 => 50.0,
+            5..=9 => 10.0,
+            10..=11 => 4.0,
+            12..=14 => 0.0,
+            _ => 0.0,
+        };
+
+        tracing::warn!("minimum required balance is {}", min_required_balance) ;
+
+        if remaining_balance <= min_required_balance {
+            return false;
+        }
+
+        // -------------------------
+        // RULE B: PER-PLAYER BUFFER
+        // -------------------------
+        // Determine segment buffer
+        let (segment_max_players, buffer_per_player) = match total_players_brought {
+            0..=4 => (5, 5.0),
+            5..=9 => (10, 4.0),
+            10..=14 => (15, 1.0),
+            _ => (15, 0.0),
+        };
+        tracing::warn!("segment max players is {}", segment_max_players) ;
+        tracing::warn!("buffer per player is {}", buffer_per_player) ;
+        let mut remaining_players_in_segment =
+            (segment_max_players as i32 - total_players_brought as i32).max(0);
+        tracing::warn!("remaining players in the current segment {}", remaining_players_in_segment) ;
+        if remaining_players_in_segment != 0 {
+            remaining_players_in_segment -= 1 ; // we need to exclude the current bidding player
+        }
+        tracing::warn!("after excluding current player {}", remaining_players_in_segment) ;
+        let required_buffer = remaining_players_in_segment as f32 * buffer_per_player;
+        tracing::warn!("required buffer is {}", required_buffer) ;
+        if remaining_balance < required_buffer {
+            return false;
+        }
+        tracing::warn!("remaining balance {}", balance) ;
+        let remaining_amount_in_that_segment = (remaining_balance - min_required_balance)-required_buffer ;
+        tracing::warn!("remaining balance in that segment {}", remaining_amount_in_that_segment) ;
+        // if required buffer is 20 , from remaining balance 100 - min_required_balance which is 50
+        // remaining is 50 cr , from that 50cr we need to subract the current bid amound
+        if remaining_amount_in_that_segment >= 0.0 {
+            tracing::warn!("this bid is allowed") ;
+            return true;
+        }
+
+
+        tracing::warn!("this bid was not allowed in the strict mode") ;
+        return false;
+    }
+
+    // FREE MODE LOGIC
+    let total_players_required = 15 - total_players_brought as i32;
+    let money_required = total_players_required as f32 * 0.30;
+    remaining_balance >= money_required
 }
+
 
 /*
     while generating use of RTM also , we need to make sure that the previous team has the ability to get foreign player or not.
