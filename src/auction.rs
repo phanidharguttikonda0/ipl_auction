@@ -791,7 +791,8 @@ pub async fn bid_allowance_handler(
         if remaining_balance < required_buffer {
             return false;
         }
-        let remaining_amount_in_that_segment = ((remaining_balance - min_required_balance)-current_bid)-required_buffer ;
+        tracing::warn!("remaining balance {}", balance) ;
+        let remaining_amount_in_that_segment = (remaining_balance - min_required_balance)-required_buffer ;
         tracing::warn!("remaining balance in that segment {}", remaining_amount_in_that_segment) ;
         // if required buffer is 20 , from remaining balance 100 - min_required_balance which is 50
         // remaining is 50 cr , from that 50cr we need to subract the current bid amound
