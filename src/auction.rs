@@ -781,11 +781,13 @@ pub async fn bid_allowance_handler(
         tracing::warn!("buffer per player is {}", buffer_per_player) ;
         let mut remaining_players_in_segment =
             (segment_max_players as i32 - total_players_brought as i32).max(0);
+        tracing::warn!("remaining players in the current segment {}", remaining_players_in_segment) ;
         if remaining_players_in_segment != 0 {
             remaining_players_in_segment -= 1 ; // we need to exclude the current bidding player
         }
+        tracing::warn!("after excluding current player {}", remaining_players_in_segment) ;
         let required_buffer = remaining_players_in_segment as f32 * buffer_per_player;
-
+        tracing::warn!("required buffer is {}", required_buffer) ;
         if remaining_balance < required_buffer {
             return false;
         }
