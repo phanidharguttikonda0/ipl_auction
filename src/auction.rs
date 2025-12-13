@@ -761,7 +761,9 @@ pub async fn bid_allowance_handler(
             _ => 0.0,
         };
 
-        if remaining_balance < min_required_balance {
+        tracing::warn!("minimum required balance is {}", min_required_balance) ;
+
+        if remaining_balance <= min_required_balance {
             return false;
         }
 
@@ -775,17 +777,30 @@ pub async fn bid_allowance_handler(
             10..=14 => (15, 1.0),
             _ => (15, 0.0),
         };
-
-        let remaining_players_in_segment =
+        tracing::warn!("segment max players is {}", segment_max_players) ;
+        tracing::warn!("buffer per player is {}", buffer_per_player) ;
+        let mut remaining_players_in_segment =
             (segment_max_players as i32 - total_players_brought as i32).max(0);
-
+        if remaining_players_in_segment != 0 {
+            remaining_players_in_segment -= 1 ; // we need to exclude the current bidding player
+        }
         let required_buffer = remaining_players_in_segment as f32 * buffer_per_player;
 
         if remaining_balance < required_buffer {
             return false;
         }
-        tracing::warn!("this bid was allowed in the strict mode also") ;
-        return true;
+        let remaining_amount_in_that_segment = ((remaining_balance - min_required_balance)-current_bid) ;
+        tracing::warn!("remaining balance in that segment {}", remaining_amount_in_that_segment) ;
+        // if required buffer is 20 , from remaining balance 100 - min_required_balance which is 50
+        // remaining is 50 cr , from that 50cr we need to subract the current bid amound
+        if required_buffer <=  remaining_amount_in_that_segment {
+            tracing::warn!("this bid is allowed") ;
+            return true;
+        }
+
+
+        tracing::warn!("this bid was not allowed in the strict mode") ;
+        return false;
     }
 
     // FREE MODE LOGIC
