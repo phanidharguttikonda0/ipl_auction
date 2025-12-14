@@ -78,11 +78,11 @@ pub async fn background_task_executor_outside_auction_db_calls(app_state: Arc<Ap
                     over here we are going to get the location based on the ip address using the API.
                 */
                 tracing::info!("using the ip address to get the geo location") ;
-                let location = get_location(&user_details.ip_address, "5522222222222222").await.unwrap();
+                let location = get_location(&user_details.ip_address, &api_key).await.unwrap();
                 tracing::warn!("location was {}", location) ;
 
                 tracing::info!("starting to store the details in the database") ;
-                match app_state.database_connection.add_location(user_details.user_id, &user_details.ip_address).await { 
+                match app_state.database_connection.add_location(user_details.user_id, &location).await { 
                   Ok(_res) => {
                        tracing::info!("successfully stored the location in the database") ;
                    } ,
