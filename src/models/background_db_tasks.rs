@@ -47,3 +47,13 @@ pub enum DBCommandsAuction {
     AddUserExternalDetails(UserExternalDetails),
     FavoriteTeamUpdated(FavoriteTeamUpdated)
 }
+
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct IpInfoResponse {
+    pub city: Option<String>,
+    pub region: Option<String>,
+    pub postal: Option<String>,
+    pub country: Option<String>,
+}

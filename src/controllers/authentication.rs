@@ -93,18 +93,21 @@ pub async fn authentication_handler(
         tracing::info!("Inserted NEW USER successfully");
 
         tracing::info!("Now we are going to add this favorite team change to the database_task_executor message passing Queue") ;
-
-
         id = row.get("id");
-        favorite_team = row.get("favorite_team");
-
-        app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
-            UserExternalDetails {
-                user_id: id,
-                ip_address: ip_address.to_string(),
-            }
-        )).expect("Unable to send the message to the db task executor");
+        favorite_team = row.get::<String, _>("favorite_team");
     }
+
+
+
+    tracing::info!("adding the user details to queue") ;
+    app_state.database_task_executor.send(DBCommandsAuction::AddUserExternalDetails(
+        UserExternalDetails {
+            user_id: id,
+            ip_address: ip_address.to_string(),
+        }
+    )).expect("Unable to send the message to the db task executor");
+
+
 
     // ────────────────────────────────────────────────────────────────
     // 4️⃣ Create Authorization Header (unchanged)
