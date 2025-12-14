@@ -13,5 +13,4 @@ pub fn rooms_routes() -> Router<Arc<AppState>> {
         .route("/get-auctions-played/{per_page}/{room_id}/{last_record_time_stamp}", get(get_rooms_played)) // it going to return the list of room-ids participated by the user and along with date
         .route("/get-participants/{room_id}", get(get_participants_room)) // it going to return the list of participants-id along with the team-name, using these participant_ids to get the team details and player details
         .layer(middleware::from_fn(crate::middlewares::authentication::auth_check))
-
 }

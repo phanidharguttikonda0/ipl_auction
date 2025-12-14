@@ -661,4 +661,23 @@ impl DatabaseAccess {
 
     }
 
+    pub async fn add_location(&self, user_id: i32, location: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("updating location for user {}", user_id) ;
+        let result = sqlx::query("update users set location=$1 where id=$2")
+            .bind(location)
+            .bind(user_id)
+            .execute(&self.connection).await ;
+
+        match result {
+            Ok(res) => {
+                tracing::info!("successfully updated to the location") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("Got an error while updating the location") ;
+                Err(err)
+            }
+        }
+    }
+
 }
