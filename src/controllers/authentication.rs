@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use axum::extract::{ConnectInfo, State};
 use axum::{Form, Json};
@@ -16,9 +16,10 @@ use crate::services::other::create_authorization_header;
 pub async fn authentication_handler(
     State(app_state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Form(details): Form<AuthenticationModel>,
 ) -> Result<Response, StatusCode> {
-    let ip_address = addr.ip() ;
+    let ip_address = get_client_ip(&headers, addr);
     tracing::info!("*****************************************") ;
     tracing::info!("ip address was {}", ip_address) ;
     tracing::info!("******************************************") ;
@@ -141,5 +142,24 @@ pub async fn authentication_handler(
             )
                 .into_response())
         }
+    }
+}
+
+
+// as cloudflare is used for the reverse proxy, we need to get the real client ip from the headers
+fn get_client_ip(headers: &HeaderMap, addr: SocketAddr) -> IpAddr {
+    // ✅ Cloudflare real client IP
+    if let Some(ip) = headers.get("CF-Connecting-IP") {
+        if let Ok(ip_str) = ip.to_str() {
+            if let Ok(parsed) = ip_str.parse::<IpAddr>() {
+                return parsed;
+            }
+        }
+    }
+
+    // ⚠️ Fallback (proxy / local dev)
+    match addr.ip() {
+        IpAddr::V6(v6) => v6.to_ipv4().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        IpAddr::V4(v4) => IpAddr::V4(v4),
     }
 }
