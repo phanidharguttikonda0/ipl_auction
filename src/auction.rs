@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use redis::aio::AsyncPushSender;
 use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
-use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, NewJoiner, ParticipantAudio, RoomMeta};
+use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, ChatMessage, NewJoiner, ParticipantAudio, RoomMeta};
 use crate::services::auction_room::{RedisConnection};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
@@ -611,7 +611,27 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 if a participant skips, then, that participant cannot be bid again
                             */
 
-                        }else {
+                        }else if text.contains("chat-") {
+                          tracing::info!("received the message from the team {}", team_name) ;
+                            // chat-message
+                            let message = text.split("-").collect::<Vec<&str>>()[1].parse::<String>().unwrap() ;
+                            tracing::info!("message was {}", message) ;
+
+                            // no stroing chats in the db, because it was an emergency case, when the audio communication was lost
+                            broadcast_handler(Message::from(serde_json::to_string(
+                                &ChatMessage{
+                                    team_name: team_name.clone(),
+                                    message
+                                }
+                            ).unwrap()),&room_id,&app_state).await ;
+
+                            /*
+                                we need to make sure notify the other users, with no of chats , with chat symbol on top for
+                                mobile users , what ever message they got. when the chat symbol is clicked it will be hovered on
+                                auction, with transparent background, they can see chats as well as the auction.
+                            */
+
+                        } else {
                             let message ;
                             let to_participant ;
                             tracing::info!("******************* Message for WeB RTC was ***************************") ;
