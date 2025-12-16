@@ -585,7 +585,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 send_himself(Message::text("No RTM Bids are taking place"), participant_id, &room_id, &app_state).await ;
                             }
 
-                        }else if text == "skip" {
+                        }else if text.contains("skip") {
+                            // if skip-s, then it's a strict-mode.
                             tracing::info!("message skip was received") ;
                             // we need to add a state in redis
                             let skipped_count = redis_connection.mark_skipped(&room_id, participant_id).await.unwrap() ;
@@ -602,7 +603,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     send_himself(Message::text(message), participant_id, &room_id, &app_state).await ;
                                 }
                             }else {
-                                let message = format!("{} skipped the player", team_name) ;
+                                let message ;
+                                if text.contains("-") {
+                                    let reason = text.split("-").collect::<Vec<&str>>()[1].parse::<String>().unwrap() ;
+                                    message = format!("{} was out of bid, due to {}", team_name, reason) ;
+                                }else {
+                                    message = format!("{} skipped the player", team_name) ;
+                                }
                                 broadcast_handler(Message::text(&message),&room_id,&app_state).await ;
                             }
 
