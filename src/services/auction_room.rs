@@ -488,11 +488,17 @@ impl RedisConnection {
             .arg(participant_id)
             .query_async::<()>(&mut conn).await?;
 
+        let skip_count: u8 = self.get_skipped_count(room_id).await?;
+
+        Ok(skip_count)
+    }
+    
+    pub async fn get_skipped_count(&self, room_id: &str) -> Result<u8, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let key = format!("room:{}:skip_state", room_id);
         let skip_count: u8 = redis::cmd("SCARD")
             .arg(&key)
-            .query_async::<u8>(&mut conn)
-            .await?;
-
+            .query_async::<u8>(&mut conn).await? ;
         Ok(skip_count)
     }
 
