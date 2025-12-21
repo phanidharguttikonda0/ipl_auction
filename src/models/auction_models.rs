@@ -97,3 +97,9 @@ pub struct ParticipantAudio {
     pub participant_id: i32,
     pub is_unmuted: bool
 }
+
+#[derive(Debug,Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub team_name: String,
+    pub message: String
+}

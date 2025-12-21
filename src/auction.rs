@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use redis::aio::AsyncPushSender;
 use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
-use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, NewJoiner, ParticipantAudio, RoomMeta};
+use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, ChatMessage, NewJoiner, ParticipantAudio, RoomMeta};
 use crate::services::auction_room::{RedisConnection};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
@@ -363,7 +363,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     // the participant has bided
                                     if current_bid.participant_id != participant_id {
                                         current_bid.participant_id = participant_id ;
-                                        let result =  redis_connection.update_current_bid(&room_id, current_bid, expiry_time, participant_id, room_mode).await ;
+                                        let expiry_time_ ;
+                                        if redis_connection.get_skipped_count(&room_id).await.unwrap() as usize == app_state.rooms.read().await.get(&room_id).unwrap().len() - 1 {
+                                            expiry_time_ = 1 ;
+                                        }else {
+                                            expiry_time_ = expiry_time ;
+                                        }
+                                        let result =  redis_connection.update_current_bid(&room_id, current_bid, expiry_time_, participant_id, room_mode).await ;
                                         match result {
                                             Ok(amount) => {
                                                 let message = Message::from(serde_json::to_string(&BidOutput{
@@ -585,13 +591,33 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 send_himself(Message::text("No RTM Bids are taking place"), participant_id, &room_id, &app_state).await ;
                             }
 
-                        }else if text == "skip" {
+                        }else if text.contains("skip") {
+                            // if skip-s, then it's a strict-mode.
                             tracing::info!("message skip was received") ;
                             // we need to add a state in redis
-                            let skipped_count = redis_connection.mark_skipped(&room_id, participant_id).await.unwrap() ;
+                            let mut skipped_count = redis_connection.mark_skipped(&room_id, participant_id).await.unwrap() ;
                             let live_participants_count = { app_state.rooms.read().await.get(&room_id).unwrap().len() } as u8;
                             tracing::info!("total participants skipped till now was {}", skipped_count) ;
                             tracing::info!("total live participants {}", live_participants_count) ;
+                            if skipped_count == live_participants_count - 1 {
+                                tracing::info!("all participants skipped, except one, checking whether he was the highest bidder") ;
+                                let current_bid = match redis_connection.get_current_bid(&room_id).await.unwrap() {
+                                    Some(bid) => {
+                                        tracing::info!("we got bid from the current bid") ;
+                                        bid
+                                    }, None => {
+                                        tracing::warn!("No Current Bid we got , so there was a problem") ;
+                                        continue
+                                    }
+                                } ;
+                                if !redis_connection.is_skipped(&room_id, current_bid.participant_id).await.unwrap() && current_bid.participant_id != 0{
+                                    skipped_count += 1;
+                                    tracing::info!("he was the one who not skipped yet, so we are selling to the highest bidder") ;
+                                    // redis_connection.mark_skipped(&room_id, current_bid.participant_id).await.unwrap() ;
+                                    // there is no need to add , any way we are going to sell the player to him, after selling
+                                    // skipped count will be refreshed.
+                                }
+                            }
                             if skipped_count == live_participants_count {
                                 if redis_connection.check_key_exists(&timer_key).await.unwrap() {
                                     redis_connection.atomic_delete(&timer_key).await.expect("unable to delete the room inside skip");
@@ -602,7 +628,13 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     send_himself(Message::text(message), participant_id, &room_id, &app_state).await ;
                                 }
                             }else {
-                                let message = format!("{} skipped the player", team_name) ;
+                                let message ;
+                                if text.contains("-") {
+                                    let reason = text.split("-").collect::<Vec<&str>>()[1].parse::<String>().unwrap() ;
+                                    message = format!("{} was out of bid, due to {}", team_name, reason) ;
+                                }else {
+                                    message = format!("{} skipped the player", team_name) ;
+                                }
                                 broadcast_handler(Message::text(&message),&room_id,&app_state).await ;
                             }
 
@@ -611,7 +643,27 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 if a participant skips, then, that participant cannot be bid again
                             */
 
-                        }else {
+                        }else if text.contains("chat-") {
+                          tracing::info!("received the message from the team {}", team_name) ;
+                            // chat-message
+                            let message = text.split("-").collect::<Vec<&str>>()[1].parse::<String>().unwrap() ;
+                            tracing::info!("message was {}", message) ;
+
+                            // no stroing chats in the db, because it was an emergency case, when the audio communication was lost
+                            broadcast_handler(Message::from(serde_json::to_string(
+                                &ChatMessage{
+                                    team_name: team_name.clone(),
+                                    message
+                                }
+                            ).unwrap()),&room_id,&app_state).await ;
+
+                            /*
+                                we need to make sure notify the other users, with no of chats , with chat symbol on top for
+                                mobile users , what ever message they got. when the chat symbol is clicked it will be hovered on
+                                auction, with transparent background, they can see chats as well as the auction.
+                            */
+
+                        } else {
                             let message ;
                             let to_participant ;
                             tracing::info!("******************* Message for WeB RTC was ***************************") ;
