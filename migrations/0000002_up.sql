@@ -37,3 +37,5 @@ ALTER TABLE rooms ADD COLUMN strict_mode BOOLEAN default false;
 ALTER TABLE users ADD COLUMN location Text;
 ALTER table players ADD COLUMN profile_url Text;
 ALTER TABLE players ADD COLUMN pool_no SMALLINT;
+ALTER TABLE participants
+    ALTER COLUMN purse_remaining SET DEFAULT 120.00;

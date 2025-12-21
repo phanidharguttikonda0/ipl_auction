@@ -130,7 +130,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
             let participant = AuctionParticipant {
                 id: participant_id,
                 team_name: team_name.clone(),
-                balance: 100.00,
+                balance: 120.00,
                 total_players_brought: 0,
                 remaining_rtms: 3,
                 is_unmuted: true,
@@ -806,7 +806,7 @@ pub async fn bid_allowance_handler(
         // RULE A: GLOBAL LIMITS
         // -------------------------
         let min_required_balance = match total_players_brought {
-            0..=4 => 50.0,
+            0..=4 => 60.0,
             5..=9 => 10.0,
             10..=11 => 4.0,
             12..=14 => 0.0,
@@ -824,8 +824,8 @@ pub async fn bid_allowance_handler(
         // -------------------------
         // Determine segment buffer
         let (segment_max_players, buffer_per_player) = match total_players_brought {
-            0..=4 => (5, 5.0),
-            5..=9 => (10, 4.0),
+            0..=4 => (5, 6.0),
+            5..=9 => (10, 5.0),
             10..=14 => (15, 1.0),
             _ => (15, 0.0),
         };
@@ -846,7 +846,7 @@ pub async fn bid_allowance_handler(
         tracing::warn!("remaining balance {}", balance) ;
         let remaining_amount_in_that_segment = (remaining_balance - min_required_balance)-required_buffer ;
         tracing::warn!("remaining balance in that segment {}", remaining_amount_in_that_segment) ;
-        // if required buffer is 20 , from remaining balance 100 - min_required_balance which is 50
+        // if required buffer is 20 , from remaining balance 120.00 - min_required_balance which is 50
         // remaining is 50 cr , from that 50cr we need to subract the current bid amound
         if remaining_amount_in_that_segment >= 0.0 {
             tracing::warn!("this bid is allowed") ;
