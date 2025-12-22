@@ -37,8 +37,8 @@ mod middlewares;
 #[tokio::main]
 async fn main() {
     // creating a writer to make all logs async and non blocking
-    let (non_blocking, _guard) = non_blocking(std::io::stdout());
-    tracing_subscriber::fmt().with_writer(non_blocking).init();
+    let tracing_gaurd = services::tracing::init_tracing();
+    // this tracing_gaurd should be alive until the server is live.
 
     dotenv().ok();
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
