@@ -12,7 +12,7 @@ use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, ChatMess
 use crate::services::auction_room::{RedisConnection};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
-use crate::models;
+use crate::{models, services};
 use crate::models::authentication_models::Claims;
 use crate::models::background_db_tasks::DBCommandsAuctionRoom;
 use crate::models::room_models::Participant;
@@ -273,59 +273,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 is_unmuted: val
                             }).unwrap()), &room_id, &app_state).await ;
                         }else if text == "start" {
-                            if redis_connection.get_room_meta(&room_id).await.unwrap().unwrap().room_creator_id != participant_id {
-                                send_himself(Message::text("You will not having permissions"), participant_id, &room_id, &app_state).await ;
-                            }else{
-                                if app_state.rooms.read().await.get(&room_id).unwrap().len() < 3 {
-                                    send_himself(Message::text("Min of 3 participants should be in the room to start auction"), participant_id,&room_id,&app_state).await ;
-                                }else {
-                                    match  redis_connection.set_pause(&room_id, false).await {
-                                        Ok(_) => {
-                                            tracing::info!("successfully set the status to pause") ;
-                                            // send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, &room_id, &app_state).await ;
-                                        },
-                                        Err(err) => {
-                                            tracing::error!("error occurred while setting the pause status") ;
-                                            tracing::error!("err was {}", err) ;
-                                            send_himself(Message::text("Technical Problem"), participant_id, &room_id, &app_state).await ;
-                                        }
-                                    } ;
 
-                                    // we are going to return the first player from the auction
-                                    let player = redis_connection.get_current_player(&room_id).await.unwrap() ;
-                                    let player = match player {
-                                        Some(player) => {
-                                            tracing::info!("got the current player") ;
-                                            player
-                                        },
-                                        None => {
-                                            tracing::warn!("I guess auction was just starting no current player") ;
-                                            // we need to get the 1st player
-                                            let player = redis_connection.get_player(1,&room_id).await.unwrap() ;
-                                            redis_connection.set_current_player(&room_id, player.clone()).await.unwrap() ;
-                                            player
-                                        }
-                                    } ;
-                                    let message ;
+                            tracing::info!("going to call the start auction function") ;
+                            services::auction_logic_executor::start_auction(room_id.clone(), participant_id, &app_state, expiry_time, room_mode).await ;
 
-                                            if player.id == 1 {
-                                                // // changing room-status
-                                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRoomStatus(models::background_db_tasks::RoomStatus{
-                                                    room_id: room_id.clone(),
-                                                    status: "in_progress".to_string(),
-                                                })).expect("Error while sending room_status to a unbounded channel") ;
-                                            }
-
-                                            message = Message::from(serde_json::to_string(&player).unwrap()) ;
-                                            // here we are going to add the player as Bid to the redis
-                                            let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false) ; // no one yet bidded
-                                            redis_connection.update_current_bid(&room_id,bid, expiry_time, -1, room_mode).await.expect("unable to update the bid") ;
-
-
-                                    // broadcasting
-                                    broadcast_handler(message,&room_id,&app_state).await ;
-                                }
-                            }
                         }else if text == "bid" {
                             /*
                                 If previously the same participant has send the bid, then that shouldn't be considered
@@ -787,6 +738,16 @@ pub async fn send_himself(msg: Message, participant_id: i32,room_id: &str, state
     }
 }
 
+
+#[tracing::instrument(
+    name = "bid_allowance_handler",
+    fields(
+        current_bid = current_bid,
+        balance = balance,
+        total_players_brought = total_players_brought,
+        strict_mode = strict_mode
+    )
+)]
 pub async fn bid_allowance_handler(
     current_bid: f32,
     balance: f32,
@@ -884,14 +845,5 @@ pub async fn send_message_to_participant(participant_id: i32, message: String, r
     }
 }
 
-/*
 
-now implement new logic in the AuctionRoom , if the message sent by the back-end was "Use RTM",
-then ask the user you want to use RTM, then if he says yes , then give him an input box and ask
-him to how much do you want to add to the current bid amount , what ever amount he enters, send that
- amount via web socket as message , "rtm-amount" eg: "rtm-10.00" , and then when ever the user get's
-  the following message "rtm-amount-{}" example : "rtm-amount-25.00" , then ask him whether you want
-  to accept 25.00 cr , if they click on accept then send ws message as rtm-accept, else rtm-cancel.
-  this is the new logic need to be implemented now.
 
-*/

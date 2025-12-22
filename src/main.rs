@@ -25,6 +25,7 @@ use crate::models::background_db_tasks::{DBCommandsAuction, DBCommandsAuctionRoo
 use crate::routes::admin_routes::admin_routes;
 use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor};
 use tracing_appender::non_blocking;
+use crate::services::http_tracing::http_trace_layer;
 
 mod models;
 mod auction;
@@ -139,6 +140,7 @@ async fn routes() -> Router {
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .nest("/admin", admin_routes())
+        .layer(http_trace_layer())
         .with_state(state);
 
     app
