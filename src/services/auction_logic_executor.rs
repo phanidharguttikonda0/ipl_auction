@@ -5,7 +5,7 @@ use crate::models;
 use crate::models::app_state::AppState;
 use crate::models::auction_models::{Bid, BidOutput};
 use crate::models::background_db_tasks::DBCommandsAuctionRoom;
-use crate::observability::metrics;
+use metrics::counter ;
 use crate::services::other::get_previous_team_full_name;
 
 
@@ -22,14 +22,13 @@ use crate::services::other::get_previous_team_full_name;
 pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppState, expiry_time: u8, room_mode: bool) {
     let start = Instant::now();
 
-    metrics::counter!("auction_start_total", 1);
+    counter!("auction_start_total").increment(1);
 
-    if permission_denied {
-        metrics::counter!("permission_denied_total", 1);
 
-    }
     let redis_connection = app_state.redis_connection.clone();
     if redis_connection.get_room_meta(room_id).await.unwrap().unwrap().room_creator_id != participant_id {
+        counter!("auction_start_denied_total").increment(1);
+
         send_himself(Message::text("You will not having permissions"), participant_id, room_id, app_state).await;
     } else {
         if app_state.rooms.read().await.get(room_id).unwrap().len() < 3 {
@@ -41,6 +40,7 @@ pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppSt
                     // send_himself(Message::text("After the Current Bid Auction will be Paused"), participant_id, room_id, &app_state).await ;
                 },
                 Err(err) => {
+                    metrics::counter!("failed while checking pause status in auction_start").increment(1) ;
                     tracing::error!("error occurred while setting the pause status");
                     tracing::error!("err was {}", err);
                     send_himself(Message::text("Technical Problem"), participant_id, room_id, app_state).await;
@@ -69,7 +69,9 @@ pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppSt
                 app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRoomStatus(models::background_db_tasks::RoomStatus {
                     room_id: room_id.to_string(),
                     status: "in_progress".to_string(),
-                })).expect("Error while sending room_status to a unbounded channel");
+                })).map_err(|err| {
+                    metrics::counter!("failed while sending update status in auction_start").increment(1);
+                }).expect("Failed to send");
             }
 
             message = Message::from(serde_json::to_string(&player).unwrap());
@@ -82,6 +84,11 @@ pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppSt
             broadcast_handler(message, room_id, app_state).await;
         }
     }
+    // ---------- SUCCESS ----------
+    metrics::counter!("auction_start_success_total").increment(1);
+
+    let elapsed = start.elapsed().as_secs_f64();
+    metrics::histogram!("auction_start_duration_seconds").record(elapsed);
     /*
     If we want to know which function out of there was causing the more time , then we can add
     instrument to those functions as well.

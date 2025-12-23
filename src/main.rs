@@ -149,3 +149,14 @@ async fn routes() -> Router {
     app
 
 }
+
+
+/*
+    | Port | What runs there   |
+| ---- | ----------------- |
+| 4545 | IPL Auction app   |
+| 9898 | /metrics endpoint |
+| 9090 | Prometheus        |
+| 3000 | Grafana           |
+
+*/

@@ -1169,7 +1169,7 @@ dependencies = [
  "http",
  "json-web-token",
  "jsonwebtoken",
- "metric",
+ "metrics",
  "metrics-exporter-prometheus",
  "redis",
  "redis-derive",
@@ -1367,12 +1367,6 @@ name = "memchr"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
-
-[[package]]
-name = "metric"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f79b2a905019431fc3c842128e7eb9529c4f09f3e1b310f8d76d150f3030832d"
 
 [[package]]
 name = "metrics"
