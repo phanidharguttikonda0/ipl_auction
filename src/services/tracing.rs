@@ -1,11 +1,12 @@
 use chrono::Local;
+use tracing::subscriber;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     fmt,
     fmt::time::FormatTime,
     EnvFilter,
 };
-use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::format::{FmtSpan, Writer};
 
 
 /// Custom timer for IST (24-hour format)
@@ -29,7 +30,7 @@ pub fn init_tracing() -> WorkerGuard {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("ipl_auction=info"));
 
-    fmt()
+    let subscriber = fmt()
         .with_writer(non_blocking)      // async logging
         .with_env_filter(env_filter)    // runtime log level control
         .json()                         // structured logs in json format, we understand easily
@@ -37,8 +38,14 @@ pub fn init_tracing() -> WorkerGuard {
         .with_file(true)                // source file
         .with_line_number(true)         // source line
         .with_current_span(true)        // attach span info
-        .with_span_list(true)           // show parent spans
-        .init();
+        .with_span_list(true) // show parent spans
+        .with_span_events(FmtSpan::CLOSE)
+        ;
+
+        subscriber
+            .pretty()              // 👈 human readable
+            .with_ansi(true)       // 👈 colors
+            .init();
 
     guard
 }
