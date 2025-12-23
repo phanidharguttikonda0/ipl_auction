@@ -1,10 +1,13 @@
+use std::time::Instant;
 use axum::extract::ws::Message;
 use crate::auction::{bid_allowance_handler, broadcast_handler, send_himself, send_message_to_participant};
 use crate::models;
 use crate::models::app_state::AppState;
 use crate::models::auction_models::{Bid, BidOutput};
 use crate::models::background_db_tasks::DBCommandsAuctionRoom;
+use crate::observability::metrics;
 use crate::services::other::get_previous_team_full_name;
+
 
 #[tracing::instrument(
     name = "start_auction",
@@ -17,6 +20,14 @@ use crate::services::other::get_previous_team_full_name;
     )
 )]
 pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppState, expiry_time: u8, room_mode: bool) {
+    let start = Instant::now();
+
+    metrics::counter!("auction_start_total", 1);
+
+    if permission_denied {
+        metrics::counter!("permission_denied_total", 1);
+
+    }
     let redis_connection = app_state.redis_connection.clone();
     if redis_connection.get_room_meta(room_id).await.unwrap().unwrap().room_creator_id != participant_id {
         send_himself(Message::text("You will not having permissions"), participant_id, room_id, app_state).await;

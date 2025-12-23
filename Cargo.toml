@@ -28,3 +28,5 @@ reqwest = { version = "0.12.24", features = ["json"] }
 tracing-appender = "0.2.4"
 base64 = "0.22.1"
 tower-http = {version = "0.6.8", features = ["cors", "trace"]}
+metric = "0.1.2"
+metrics-exporter-prometheus = "0.18.1"
