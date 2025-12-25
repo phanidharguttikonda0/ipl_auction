@@ -812,251 +812,275 @@ pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>
 
         let room_id = parts.get(parts.len() - 1).unwrap_or(&"").to_string();
         let is_rtm = parts.get(parts.len() - 2).unwrap_or(&"").to_string();
-        let mut sold = false ;
-        tracing::info!("is rtm ---------------> {}", is_rtm) ;
-        tracing::info!("room_id from that expiry key was {}", room_id);
-        tracing::info!("we are going to use the key to broadcast") ;
-
-                let current_bid = redis_connection.get_current_bid(&room_id).await?.unwrap();
-                let room_meta = redis_connection.get_room_meta(&room_id).await? ;
-                let room_meta: RoomMeta = match room_meta {
-                   Some(room_meta) => room_meta,
-                    None => { continue; }
-                } ;
-                let message;
-                let participant_id = current_bid.clone().participant_id ;
-                let player_id = current_bid.clone().player_id ;
-
-                // here we are going to check whether the specific player having the previous team or not
-                let current_player = redis_connection.get_current_player(&room_id).await?;
-                let current_player = match current_player {
-                    Some(current_player) => current_player,
-                    None => {
-                        tracing::warn!("No current player") ;
-                        continue;
-                    }
-                } ;
-                let pause_status = room_meta.pause ;
-                if is_rtm == "rtms" {
-
-                    // from know all redis operation will be done with out any data races , because
-                    tracing::info!("the expired key was the RTM one") ;
-                    // as it is expired, we are going to sell the player to the last bidded person
-                    let bid = current_bid.clone() ;
-                    let details = redis_connection.get_participant(&room_id, bid.participant_id).await? ;
-                    let mut participant = match details {
-                        Some(details) => details,
-                        None => {
-                            continue ;
-                        }
-                    } ;
-                    let mut remaining_rtms = participant.remaining_rtms ;
-                    if bid.is_rtm {
-                        // we are going to update the rtms of the user
-                       // redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
-                        // we are going to update in the sql as well.
-                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
-                            id: bid.participant_id
-                        })).expect("Error while sending participant id for updating rtms to a unbounded channel") ;
-                        redis_connection.decrement_rtm(&room_id, participant_id).await? ;
-                        remaining_rtms -= 1 ;
-                    }
-                    // we are going to sell the player to the person,
-                    tracing::info!("player was a sold player") ;
-                    app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(models::background_db_tasks::SoldPlayer {
-                        room_id: room_id.clone(),
-                        player_id: bid.player_id,
-                        participant_id: bid.participant_id,
-                        bid_amount: bid.bid_amount
-                    })).expect("Error While adding Player sold to the unbounded channel") ;
-                    let remaining_balance = round_two_decimals(participant.balance -  bid.bid_amount);
-                    redis_connection.increment_total_players_brought(&room_id, participant_id).await.expect("error while updating total players brought") ;
-                    let total_players_brought = participant.total_players_brought + 1 ;
-                    redis_connection.update_balance(&room_id, participant_id, remaining_balance).await.expect("error while updating balance") ;
-                    /*
-                        for a new player brought, we need to update balance total players brought, foreign player
-                    */
-                    // updating the participant balance in the participant table
-                    app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
-                        participant_id: bid.participant_id,
-                        remaining_balance
-                    })).expect("Error While update balance to the unbounded channel") ;
-                    tracing::info!("successfully updated the balance in the psql") ;
-                    tracing::info!("updating in the redis along with the balance and bid") ;
-                    let bid_ = Bid::new(0, 0,0.0,0.0, false, false) ;
-                    redis_connection.reset_skip(&room_id).await.expect("error while resetting skip_count") ;
-                    // bid expiry zero means it will not use timer just update the current bid value
-                    redis_connection.update_current_bid(&room_id, bid_, 0, -1, true).await.expect("") ;
-                    let mut foreign_players_brought = participant.foreign_players_brought ;
-
-                    if !current_player.is_indian {
-                        // details.0.foreign_players_brought += 1 ;
-                        // foreign_players_brought = details.0.foreign_players_brought ; // getting updated foreign_players count
-                        // res.participants[details.1 as usize] = details.0 ;
-                        redis_connection.increment_foreign_player_count(&room_id, participant_id).await?;
-                        foreign_players_brought += 1 ;
-                    }
-                    // let res = serde_json::to_string(&res).unwrap();
-                    // conn.set::<_,_,()>(&room_id, res).await?;
-
-                    sold = true ;
-                    
-                    broadcast_handler(Message::from(
-                        serde_json::to_string(&SoldPlayer {
-                            team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
-                            sold_price: bid.bid_amount,
-                            remaining_balance,
-                            remaining_rtms,
-                            foreign_players_brought
-                        }).unwrap()
-                    ), &room_id, &app_state).await ;
-                    
-
-                }else{
-                    tracing::info!("****************************") ;
-                    let full_team_name = get_previous_team_full_name(&current_player.previous_team) ;
-                    /*
-                        we need to get the remaining rtms of the previous team and participant_id
-                    */
-                    let mut remaining_rtms = 0; // remaining_rtms of previous player
-                    let mut previous_team_participant_id= 0 ;
-                    let mut previous_team_foreign_player_count = 0 ;
-                    let mut list_of_participants = redis_connection.list_participants(&room_id).await.expect("error while getting list of participants") ;
-                    for participant_id in list_of_participants.iter() {
-                        let participant = redis_connection.get_participant(&room_id, *participant_id).await.expect("error while getting participant from the participant-id") ;
-                        if let Some(participant) = participant {
-                            tracing::info!("participant.teamname {} and previous_player.previous_team {}", participant.team_name, full_team_name) ;
-                            if participant.team_name == full_team_name {
-                                tracing::info!("previous team participant {}", participant.id) ;
-                                previous_team_participant_id = participant.id ;
-                                remaining_rtms = participant.remaining_rtms ;
-                                previous_team_foreign_player_count = participant.foreign_players_brought ;
-                                tracing::info!("remaining_rtms {}", remaining_rtms) ;
-                                break
-                            }
-                        }else{
-                            continue
-                        }
-                    }
-                    let current_bid= current_bid.clone() ;
-                    tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
-                    tracing::info!("previous team {}", current_player.previous_team) ;
-                    tracing::info!("remaining rtms {}",remaining_rtms) ;
-                    tracing::info!("previous team {}", full_team_name) ;
-                    tracing::info!("is rtm bid {}, it should be false",current_bid.rtm_bid) ;
-                    tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
-                    if ((!current_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid)
-                        && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id
-                        && !redis_connection.is_skipped(&room_id,previous_team_participant_id).await.expect("") && (current_player.clone().is_indian || previous_team_foreign_player_count < 8)
-                    { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
-                        tracing::info!("going to send the Use RTM") ;
-                        // so we are going to create a new expiry key, and for that key there will be another subscriber
-                        // now we are going to send the notification to the previous team to use the RTM, if he not uses it
-                        // then this will expiry in 20 seconds.
-
-                        send_message_to_participant(previous_team_participant_id, String::from("Use RTM"), &room_id, &app_state).await ;
-
-                        // setting the new timer
-                        let rtm_timer_key = format!("auction:timer:rtms:{}", room_id); // if this key exists in the redis then no bids takes place
-                        let mut conn = redis_connection.connection.clone() ;
-                        conn.set_ex::<_, _, ()>(&rtm_timer_key, "rtm", bid_expiry as u64).await.expect("unable to set the updated value in new_bid");
-                        tracing::info!("we have successfully sent the message to the previous team, regarding RTM") ;
-                        continue;
-                    }else {
-
-                            tracing::info!("we are going to update the balance of the participant") ;
-
-                            let length ;
-                            {
-                                let rooms = &app_state.rooms;
-                                let mut rooms_lock = rooms.read().await; // acquire mutable write lock
-                                length = rooms_lock.get(&room_id).unwrap().len() ;
-                            }
-
-                            tracing::info!("length of room {}", length) ;
-                            let mut remaining_balance: f32 = 0.0 ;
-                            if current_bid.bid_amount != 0.0 {
-                                let participant = redis_connection.get_participant(&room_id, current_bid.participant_id).await? ;
-                                let participant = match participant {
-                                    Some(participant) => participant,
-                                    None => {
-                                        continue;
-                                    }
-                                };
-                                remaining_balance = participant.balance -  current_bid.bid_amount;
-                                remaining_rtms = participant.remaining_rtms ;
-                                let total_players_brought = participant.total_players_brought + 1 ;
-                                redis_connection.increment_total_players_brought(&room_id, participant_id).await.expect("error while updating total players brought") ;
-                                redis_connection.update_balance(&room_id, participant_id, remaining_balance).await.expect("error while updating balance") ;
-
-                                let bid = Bid::new(0, 0,0.0,0.0, false, false) ;
-                                redis_connection.update_current_bid(&room_id, bid, 0, -1, true).await.expect("error while updating the current bid") ;
-                                let mut foreign_players_brought = participant.foreign_players_brought ;
-                                if !current_player.is_indian {
-                                    tracing::info!("he is a foreign player, so updating foreign player count") ;
-                                    redis_connection.increment_foreign_player_count(&room_id, participant_id).await?;
-                                    foreign_players_brought += 1 ;
-                                }
-                                message= Message::from(
-                                    serde_json::to_string(&SoldPlayer {
-                                        team_name: participant.team_name.clone(),
-                                        sold_price: current_bid.bid_amount,
-                                        remaining_balance,
-                                        remaining_rtms,
-                                        foreign_players_brought
-                                    }).unwrap()
-                                );
-                            }else{
-                                message = Message::text("UnSold") ;
-                            }
-
-                            // making sure no skipped count
-                            redis_connection.reset_skip(&room_id).await.expect("error while reseting the skip count") ;
-                            tracing::info!("we are going to broadcast the message to the room participant") ;
-                            broadcast_handler(message,&room_id, &app_state ).await ;
-
-                            // -------------------- over here we need to add the player to the sold player list with room-id and player-id
-                            if current_bid.bid_amount != 0.0 {
-                                tracing::info!("player was a sold player") ;
-                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(models::background_db_tasks::SoldPlayer {
-                                    room_id: room_id.clone(),
-                                    player_id: current_bid.player_id,
-                                    participant_id: current_bid.participant_id,
-                                    bid_amount: current_bid.bid_amount
-                                })).expect("Error While adding Player sold to the unbounded channel") ;
-                                // updating the participant balance in the participant table
-                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
-                                    participant_id: current_bid.participant_id,
-                                    remaining_balance
-                                })).expect("Error While update balance to the unbounded channel") ;
-                                tracing::info!("successfully updated the balance in the psql") ;
-                            }else {
-                                tracing::info!("player was an unsold player") ;
-                                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerUnSold(models::background_db_tasks::UnSoldPlayer {
-                                    room_id: room_id.clone(),
-                                    player_id: current_bid.player_id
-                                })).expect("Error While adding Player Unsold to the unbounded channel") ;
-                            }
-                            sold = true ;
-                    }
-
-                }
-
-                let message ;
-                if sold  {
-                    message = get_next_player(&room_id, player_id, bid_expiry, pause_status).await ;
-                }else {
-                    message = Message::text("Auction was Paused");
-                }
-
-                broadcast_handler(message,&room_id, &app_state ).await ;
-
+        handling_expiry_events(&app_state,&room_id, is_rtm, bid_expiry).await ;
     }
 
     Ok(())
 }
 
 
+
+#[tracing::instrument(
+    name = "handling_expiry_events",
+    skip(app_state),
+    fields(
+        room_id = %room_id,
+        is_rtm_key = is_rtm,
+        bid_expiry = bid_expiry
+    )
+)]
+pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_rtm: String, bid_expiry: u8) {
+    let mut sold = false ;
+    let redis_connection = app_state.redis_connection.clone() ;
+    tracing::info!("is rtm ---------------> {}", is_rtm) ;
+    tracing::info!("room_id from that expiry key was {}", room_id);
+    tracing::info!("we are going to use the key to broadcast") ;
+
+    let current_bid = redis_connection.get_current_bid(room_id).await.unwrap().unwrap();
+    let room_meta = redis_connection.get_room_meta(room_id).await.unwrap() ;
+    let room_meta: RoomMeta = match room_meta {
+        Some(room_meta) => room_meta,
+        None => { return; }
+    } ;
+    let message;
+    let participant_id = current_bid.clone().participant_id ;
+    let player_id = current_bid.clone().player_id ;
+
+    // here we are going to check whether the specific player having the previous team or not
+    let current_player = redis_connection.get_current_player(room_id).await.unwrap();
+    let current_player = match current_player {
+        Some(current_player) => current_player,
+        None => {
+            tracing::warn!("No current player") ;
+            return;
+        }
+    } ;
+    let pause_status = room_meta.pause ;
+    if is_rtm == "rtms" {
+
+        // from know all redis operation will be done with out any data races , because
+        tracing::info!("the expired key was the RTM one") ;
+        // as it is expired, we are going to sell the player to the last bidded person
+        let bid = current_bid.clone() ;
+        let details = redis_connection.get_participant(room_id, bid.participant_id).await.unwrap() ;
+        let mut participant = match details {
+            Some(details) => details,
+            None => {
+                return ;
+            }
+        } ;
+        let mut remaining_rtms = participant.remaining_rtms ;
+        if bid.is_rtm {
+            // we are going to update the rtms of the user
+            // redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
+            // we are going to update in the sql as well.
+            app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
+                id: bid.participant_id
+            })).expect("Error while sending participant id for updating rtms to a unbounded channel") ;
+            redis_connection.decrement_rtm(room_id, participant_id).await.unwrap() ;
+            remaining_rtms -= 1 ;
+        }
+        // we are going to sell the player to the person,
+        tracing::info!("player was a sold player") ;
+        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(models::background_db_tasks::SoldPlayer {
+            room_id: room_id.to_string(),
+            player_id: bid.player_id,
+            participant_id: bid.participant_id,
+            bid_amount: bid.bid_amount
+        })).expect("Error While adding Player sold to the unbounded channel") ;
+        let remaining_balance = round_two_decimals(participant.balance -  bid.bid_amount);
+        redis_connection.increment_total_players_brought(room_id, participant_id).await.expect("error while updating total players brought") ;
+        let total_players_brought = participant.total_players_brought + 1 ;
+        redis_connection.update_balance(room_id, participant_id, remaining_balance).await.expect("error while updating balance") ;
+        /*
+            for a new player brought, we need to update balance total players brought, foreign player
+        */
+        // updating the participant balance in the participant table
+        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
+            participant_id: bid.participant_id,
+            remaining_balance
+        })).expect("Error While update balance to the unbounded channel") ;
+        tracing::info!("successfully updated the balance in the psql") ;
+        tracing::info!("updating in the redis along with the balance and bid") ;
+        let bid_ = Bid::new(0, 0,0.0,0.0, false, false) ;
+        redis_connection.reset_skip(room_id).await.expect("error while resetting skip_count") ;
+        // bid expiry zero means it will not use timer just update the current bid value
+        redis_connection.update_current_bid(room_id, bid_, 0, -1, true).await.expect("") ;
+        let mut foreign_players_brought = participant.foreign_players_brought ;
+
+        if !current_player.is_indian {
+            // details.0.foreign_players_brought += 1 ;
+            // foreign_players_brought = details.0.foreign_players_brought ; // getting updated foreign_players count
+            // res.participants[details.1 as usize] = details.0 ;
+            redis_connection.increment_foreign_player_count(room_id, participant_id).await.unwrap();
+            foreign_players_brought += 1 ;
+        }
+        // let res = serde_json::to_string(&res).unwrap();
+        // conn.set::<_,_,()>(&room_id, res).await?;
+
+        sold = true ;
+
+        broadcast_handler(Message::from(
+            serde_json::to_string(&SoldPlayer {
+                team_name: app_state.database_connection.get_team_name(participant_id).await.unwrap(),
+                sold_price: bid.bid_amount,
+                remaining_balance,
+                remaining_rtms,
+                foreign_players_brought
+            }).unwrap()
+        ), room_id, &app_state).await ;
+
+
+    }else{
+        tracing::info!("****************************") ;
+        let full_team_name = get_previous_team_full_name(&current_player.previous_team) ;
+        /*
+            we need to get the remaining rtms of the previous team and participant_id
+        */
+        let mut remaining_rtms = 0; // remaining_rtms of previous player
+        let mut previous_team_participant_id= 0 ;
+        let mut previous_team_foreign_player_count = 0 ;
+        let mut list_of_participants = redis_connection.list_participants(room_id).await.expect("error while getting list of participants") ;
+        for participant_id in list_of_participants.iter() {
+            let participant = redis_connection.get_participant(room_id, *participant_id).await.expect("error while getting participant from the participant-id") ;
+            if let Some(participant) = participant {
+                tracing::info!("participant.teamname {} and previous_player.previous_team {}", participant.team_name, full_team_name) ;
+                if participant.team_name == full_team_name {
+                    tracing::info!("previous team participant {}", participant.id) ;
+                    previous_team_participant_id = participant.id ;
+                    remaining_rtms = participant.remaining_rtms ;
+                    previous_team_foreign_player_count = participant.foreign_players_brought ;
+                    tracing::info!("remaining_rtms {}", remaining_rtms) ;
+                    break
+                }
+            }else{
+                continue
+            }
+        }
+        let current_bid= current_bid.clone() ;
+        tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
+        tracing::info!("previous team {}", current_player.previous_team) ;
+        tracing::info!("remaining rtms {}",remaining_rtms) ;
+        tracing::info!("previous team {}", full_team_name) ;
+        tracing::info!("is rtm bid {}, it should be false",current_bid.rtm_bid) ;
+        tracing::info!("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx") ;
+        if ((!current_player.previous_team.contains("-"))  && remaining_rtms > 0) && (!current_bid.rtm_bid)
+            && current_bid.participant_id > 0 && previous_team_participant_id != current_bid.participant_id
+            && !redis_connection.is_skipped(room_id,previous_team_participant_id).await.expect("") && (current_player.clone().is_indian || previous_team_foreign_player_count < 8)
+        { // if it is rtm_bid means rtm was accepted such that the highest bidder willing to buy the player with the price quoted by the rtm team
+            tracing::info!("going to send the Use RTM") ;
+            // so we are going to create a new expiry key, and for that key there will be another subscriber
+            // now we are going to send the notification to the previous team to use the RTM, if he not uses it
+            // then this will expiry in 20 seconds.
+
+            send_message_to_participant(previous_team_participant_id, String::from("Use RTM"), room_id, &app_state).await ;
+
+            // setting the new timer
+            let rtm_timer_key = format!("auction:timer:rtms:{}", room_id); // if this key exists in the redis then no bids takes place
+            let mut conn = redis_connection.connection.clone() ;
+            conn.set_ex::<_, _, ()>(&rtm_timer_key, "rtm", bid_expiry as u64).await.expect("unable to set the updated value in new_bid");
+            tracing::info!("we have successfully sent the message to the previous team, regarding RTM") ;
+            return;
+        }else {
+
+            tracing::info!("we are going to update the balance of the participant") ;
+
+            let length ;
+            {
+                let rooms = &app_state.rooms;
+                let mut rooms_lock = rooms.read().await; // acquire mutable write lock
+                length = rooms_lock.get(room_id).unwrap().len() ;
+            }
+
+            tracing::info!("length of room {}", length) ;
+            let mut remaining_balance: f32 = 0.0 ;
+            if current_bid.bid_amount != 0.0 {
+                let participant = redis_connection.get_participant(room_id, current_bid.participant_id).await.unwrap() ;
+                let participant = match participant {
+                    Some(participant) => participant,
+                    None => {
+                        return;
+                    }
+                };
+                remaining_balance = participant.balance -  current_bid.bid_amount;
+                remaining_rtms = participant.remaining_rtms ;
+                let total_players_brought = participant.total_players_brought + 1 ;
+                redis_connection.increment_total_players_brought(room_id, participant_id).await.expect("error while updating total players brought") ;
+                redis_connection.update_balance(room_id, participant_id, remaining_balance).await.expect("error while updating balance") ;
+
+                let bid = Bid::new(0, 0,0.0,0.0, false, false) ;
+                redis_connection.update_current_bid(room_id, bid, 0, -1, true).await.expect("error while updating the current bid") ;
+                let mut foreign_players_brought = participant.foreign_players_brought ;
+                if !current_player.is_indian {
+                    tracing::info!("he is a foreign player, so updating foreign player count") ;
+                    redis_connection.increment_foreign_player_count(room_id, participant_id).await.unwrap();
+                    foreign_players_brought += 1 ;
+                }
+                message= Message::from(
+                    serde_json::to_string(&SoldPlayer {
+                        team_name: participant.team_name.clone(),
+                        sold_price: current_bid.bid_amount,
+                        remaining_balance,
+                        remaining_rtms,
+                        foreign_players_brought
+                    }).unwrap()
+                );
+            }else{
+                message = Message::text("UnSold") ;
+            }
+
+            // making sure no skipped count
+            redis_connection.reset_skip(room_id).await.expect("error while reseting the skip count") ;
+            tracing::info!("we are going to broadcast the message to the room participant") ;
+            broadcast_handler(message,room_id, &app_state ).await ;
+
+            // -------------------- over here we need to add the player to the sold player list with room-id and player-id
+            if current_bid.bid_amount != 0.0 {
+                tracing::info!("player was a sold player") ;
+                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(models::background_db_tasks::SoldPlayer {
+                    room_id: room_id.to_string(),
+                    player_id: current_bid.player_id,
+                    participant_id: current_bid.participant_id,
+                    bid_amount: current_bid.bid_amount
+                })).expect("Error While adding Player sold to the unbounded channel") ;
+                // updating the participant balance in the participant table
+                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
+                    participant_id: current_bid.participant_id,
+                    remaining_balance
+                })).expect("Error While update balance to the unbounded channel") ;
+                tracing::info!("successfully updated the balance in the psql") ;
+            }else {
+                tracing::info!("player was an unsold player") ;
+                app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerUnSold(models::background_db_tasks::UnSoldPlayer {
+                    room_id: room_id.to_string(),
+                    player_id: current_bid.player_id
+                })).expect("Error While adding Player Unsold to the unbounded channel") ;
+            }
+            sold = true ;
+        }
+
+    }
+
+    let message ;
+    if sold  {
+        message = get_next_player(room_id, player_id, bid_expiry, pause_status).await ;
+    }else {
+        message = Message::text("Auction was Paused");
+    }
+
+    broadcast_handler(message,room_id, &app_state ).await ;
+
+}
+
+#[tracing::instrument(
+    name = "getting_next_player",
+    fields(
+        room_id = %room_id,
+        player_id = player_id,
+        pause_status = pause_status,
+        bid_expiry = bid_expiry
+    )
+)]
 pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, pause_status: bool) -> Message {
     // we are going to get the next player and broadcasting the next player
     let next_player = player_id + 1 ;

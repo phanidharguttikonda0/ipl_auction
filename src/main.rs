@@ -25,6 +25,8 @@ use crate::models::background_db_tasks::{DBCommandsAuction, DBCommandsAuctionRoo
 use crate::routes::admin_routes::admin_routes;
 use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor};
 use tracing_appender::non_blocking;
+use crate::observability::http_tracing::http_trace_layer;
+use crate::observability::metrics::init_metrics;
 
 mod models;
 mod auction;
@@ -32,13 +34,15 @@ mod services;
 mod routes;
 mod controllers;
 mod middlewares;
-
+mod observability;
 
 #[tokio::main]
 async fn main() {
     // creating a writer to make all logs async and non blocking
-    let (non_blocking, _guard) = non_blocking(std::io::stdout());
-    tracing_subscriber::fmt().with_writer(non_blocking).init();
+    let tracing_gaurd = observability::tracing::init_tracing();
+    // this tracing_gaurd should be alive until the server is live.
+    tracing::info!("Initializing Metrics");
+    init_metrics();
 
     dotenv().ok();
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
@@ -127,10 +131,6 @@ async fn routes() -> Router {
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     let app = Router::new()
-        .route("/health", get(|| {
-            tracing::info!("Health check passed") ;
-            async { Ok::<_, std::convert::Infallible>("Health check passed") }
-        }))
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/feedback", post(feed_back).layer(middleware::from_fn(middlewares::authentication::auth_check)))
@@ -139,8 +139,24 @@ async fn routes() -> Router {
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .nest("/admin", admin_routes())
+        .route("/health", get(|| {
+            tracing::info!("Health check passed") ;
+            async { Ok::<_, std::convert::Infallible>("Health check passed") }
+        }))
+        .layer(http_trace_layer())
         .with_state(state);
 
     app
 
 }
+
+
+/*
+    | Port | What runs there   |
+| ---- | ----------------- |
+| 4545 | IPL Auction app   |
+| 9898 | /metrics endpoint |
+| 9090 | Prometheus        |
+| 3000 | Grafana           |
+
+*/
