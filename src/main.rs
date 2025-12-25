@@ -43,7 +43,7 @@ async fn main() {
     // this tracing_gaurd should be alive until the server is live.
     tracing::info!("Initializing Metrics");
     init_metrics();
-    
+
     dotenv().ok();
     let port = std::env::var("PORT").unwrap_or("4545".to_string());
     tracing::info!("Starting server on port {}", port);
@@ -131,10 +131,6 @@ async fn routes() -> Router {
     // here we are going to load all the players from the database to the redis
     load_players_to_redis(&state.database_connection).await ;
     let app = Router::new()
-        .route("/health", get(|| {
-            tracing::info!("Health check passed") ;
-            async { Ok::<_, std::convert::Infallible>("Health check passed") }
-        }))
         .nest("/rooms", rooms_routes())
         .nest("/players", players_routes())
         .route("/feedback", post(feed_back).layer(middleware::from_fn(middlewares::authentication::auth_check)))
@@ -143,6 +139,10 @@ async fn routes() -> Router {
         .layer(cors) // <-- apply globally
         .route("/ws/{room_id}/{participant_id}", get(ws_handler))
         .nest("/admin", admin_routes())
+        .route("/health", get(|| {
+            tracing::info!("Health check passed") ;
+            async { Ok::<_, std::convert::Infallible>("Health check passed") }
+        }))
         .layer(http_trace_layer())
         .with_state(state);
 
