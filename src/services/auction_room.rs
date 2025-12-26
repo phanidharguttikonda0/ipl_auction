@@ -553,12 +553,14 @@ impl RedisConnection {
 
     pub async fn get_player_from_next_pool(&self, room_id: &str) -> Result<(i32,String), redis::RedisError> {
         let next_player = self.get_current_player(room_id).await?.unwrap();
+        tracing::info!("*=* the next player was {:?}", next_player) ;
         if next_player.pool_no == 12 {
             return Ok((-1,"completed".to_string()))
         }
-        let redis_key = format!("players_{}", next_player.pool_no+1);
-        tracing::info!("*=* current pool {} next pool {}", next_player.pool_no, redis_key);
-        let next_player = self.get_smallest_player_id_by_pool(next_player.pool_no+1)
+        let next_pool_no = next_player.pool_no + 1 ;
+        let redis_key = format!("players_{}", next_pool_no);
+        tracing::info!("*=* current pool {} next pool {}", next_pool_no, redis_key);
+        let next_player = self.get_smallest_player_id_by_pool(next_pool_no)
         .await.unwrap().unwrap();
         Ok((next_player as i32, "".to_string()))
     }
