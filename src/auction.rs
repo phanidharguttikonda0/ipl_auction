@@ -392,7 +392,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             // room_id: &str, participant_id: i32, app_state: &AppState, room_mode: bool, rtm_timer_key: &str, text: String, expiry_time: u8
                             services::auction_logic_executor::use_rtm(&room_id, participant_id, &app_state, room_mode, &rtm_timer_key, text, expiry_time).await ;
 
-                        }else if text.contains("skip") {
+                        }else if text == "skip" {
 
                             // room_id: &str, participant_id: i32, app_state: &AppState, timer_key: &str, room_mode: bool, text: String, team_name: &str
                             tracing::info!("executing skip") ;
@@ -428,6 +428,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                in pool, once every one has skipped then the pool will be jumped to another pool.
                                -> If all skipped, from the next player we are going to jump to the next pool.
                             */
+                            tracing::info!("*=* skip current pool called");
                             redis_connection.mark_participant_skipped_pool(&room_id, participant_id).await.map_err(
                                 |e| {
                                     tracing::error!("marking participant skipped pool room_id {} and participant_id {}", room_id, participant_id) ;
