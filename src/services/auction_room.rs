@@ -536,7 +536,7 @@ impl RedisConnection {
 
     pub async fn get_skipped_pool_count(&self, room_id: &str) -> Result<u8, redis::RedisError> {
         let mut conn = self.connection.clone();
-        let key = format!("room:{}:skipped_pool_count", room_id);
+        let key = format!("room:{}:skipped_pool", room_id);
         let skip_count: u8 = redis::cmd("SCARD").arg(&key).query_async(&mut conn).await?;
 
         Ok(skip_count)
