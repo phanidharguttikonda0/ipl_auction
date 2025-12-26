@@ -299,7 +299,7 @@ impl RedisConnection {
         let key = format!("room:{}:current_player", room_id);
 
         // HMGET returns tuple of Options
-        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>, Option<String>, Option<i16>) =
+        let result: (Option<i32>, Option<String>, Option<f32>, Option<String>, Option<String>, Option<String>, Option<i32>, Option<String>, Option<i32>) =
             redis::cmd("HMGET")
                 .arg(&key)
                 .arg("id")
@@ -340,7 +340,7 @@ impl RedisConnection {
             previous_team: previous_team.unwrap_or_default(),
             is_indian: is_indian_raw.unwrap_or(0) == 1,
             profile_url: profile_url.unwrap_or_default(),
-            pool_no: pool_no.unwrap_or(0),
+            pool_no: pool_no.unwrap_or(0) as i16,
         };
 
         Ok(Some(player))
