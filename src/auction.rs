@@ -434,6 +434,8 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                     tracing::error!("error was {} for room_id {}", e, room_id) ;
                                 }
                             ).unwrap() ;
+                            broadcast_handler(Message::text(&format!("{} want's to skip the current-pool", team_name)),&room_id,&app_state).await ;
+
                         }else if text == "get-is-skipped-pool" {
                             tracing::info!("asking whether he {} skipped pool or not", participant_id) ;
 
@@ -443,10 +445,10 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                             let message ;
                             if result {
                                 tracing::info!("he skipped") ;
-                                message = Message::text("true") ;
+                                message = Message::text("is_skipped:true") ;
                             }else{
                                 tracing::info!("he not skipped yet") ;
-                                message = Message::text("false") ;
+                                message = Message::text("is_skipped:false") ;
                             }
                             send_himself(message, participant_id, &room_id, &app_state).await ;
                         }
