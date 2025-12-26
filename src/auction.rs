@@ -418,7 +418,39 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                 auction, with transparent background, they can see chats as well as the auction.
                             */
 
-                        } else {
+                        }else if text == "skip-current-pool" {
+
+                            // going to add a new feature, so maintain a separate state in the redis
+                            /*
+                               -> using a hash set for storing list of users skipped the current pool
+                               -> so if every one skipped the pool , then we will jump into the next pool
+                               in between even a player skipped the pool is allowed to bid for the players
+                               in pool, once every one has skipped then the pool will be jumped to another pool.
+                               -> If all skipped, from the next player we are going to jump to the next pool.
+                            */
+                            redis_connection.mark_participant_skipped_pool(&room_id, participant_id).await.map_err(
+                                |e| {
+                                    tracing::error!("marking participant skipped pool room_id {} and participant_id {}", room_id, participant_id) ;
+                                    tracing::error!("error was {} for room_id {}", e, room_id) ;
+                                }
+                            ).unwrap() ;
+                        }else if text == "get-is-skipped-pool" {
+                            tracing::info!("asking whether he {} skipped pool or not", participant_id) ;
+
+                            let result = redis_connection.is_participant_skipped_pool(&room_id, participant_id).await.map_err(|err| {
+
+                            }).unwrap() ;
+                            let message ;
+                            if result {
+                                tracing::info!("he skipped") ;
+                                message = Message::text("true") ;
+                            }else{
+                                tracing::info!("he not skipped yet") ;
+                                message = Message::text("false") ;
+                            }
+                            send_himself(message, participant_id, &room_id, &app_state).await ;
+                        }
+                        else {
                             let message ;
                             let to_participant ;
                             tracing::info!("******************* Message for WeB RTC was ***************************") ;

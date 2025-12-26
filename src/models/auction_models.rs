@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use redis_derive::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 use crate::models::app_state::Player;
@@ -36,7 +36,7 @@ impl AuctionParticipant {
 */
 
 pub type SkipState = HashMap<i32, bool>; //  room_id:skip_state is the key to get the skip state from redis
-
+pub type SkipPoll = HashSet<i32> ; // room_id:skipped_pool is key that represents skipped pool state for a pool in redis
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize)]
 pub struct Bid { // room_id:current_bid is the key to get the current bid from redis
     pub participant_id: i32,
@@ -64,7 +64,7 @@ impl Bid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomMeta {
     pub pause: bool,
-    pub room_creator_id: i32,
+    pub room_creator_id: i32
 } // meta data of the room -> room_id:meta is the key to get the meta data from redis
 
 
