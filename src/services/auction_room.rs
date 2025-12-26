@@ -1175,13 +1175,17 @@ pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, paus
     // we are going to get the next player and broadcasting the next player
     let mut next_player = player_id + 1 ;
     let mut redis_connection = app_state.redis_connection.clone();
-    if app_state
+    let participants_count = app_state
     .rooms
     .read()
     .await
     .get(room_id)
     .unwrap()
-    .len() == app_state.redis_connection.get_skipped_pool_count(room_id).await.unwrap() as usize {
+    .len() ;
+    tracing::info!("*=* participants count is {}", participants_count) ;
+    let skipped_pool_count = app_state.redis_connection.get_skipped_pool_count(room_id).await.unwrap() as usize ;
+    tracing::info!("*=* skipped pool count is {}", skipped_pool_count) ;
+    if  participants_count == skipped_pool_count {
         tracing::info!("skipped pool count is equal to the number of participants") ;
         let result  = redis_connection.get_player_from_next_pool(room_id).await.map_err(
             |e| {
@@ -1194,7 +1198,7 @@ pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, paus
         }
         next_player = result.0 ;
     }
-    tracing::info!("* next player id is {}", next_player) ;
+    tracing::info!("*=* next player id is {}", next_player) ;
     let player: RedisResult<Player> = redis_connection.get_player(next_player, room_id).await;
     let mut message ;
     match player {
