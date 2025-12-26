@@ -188,6 +188,8 @@ impl RedisConnection {
             .arg(&player.previous_team)
             .arg("is_indian")
             .arg(if player.is_indian { 1 } else { 0 })
+            .arg("pool_no")
+            .arg(player.pool_no)
             .query_async::<i32>(&mut conn)
             .await?;
 
