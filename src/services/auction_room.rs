@@ -557,7 +557,7 @@ impl RedisConnection {
             return Ok((-1,"completed".to_string()))
         }
         let redis_key = format!("players_{}", next_player.pool_no+1);
-        tracing::info!("current pool {} next pool {}", next_player.pool_no, redis_key);
+        tracing::info!("*=* current pool {} next pool {}", next_player.pool_no, redis_key);
         let next_player = self.get_smallest_player_id_by_pool(next_player.pool_no+1)
         .await.unwrap().unwrap();
         Ok((next_player as i32, "".to_string()))
@@ -570,7 +570,7 @@ impl RedisConnection {
         let mut conn = self.connection.clone();
 
         let zset_key = format!("players_{}:ids", pool_no);
-
+        tracing::info!("getting smallest id from the pool_no {}", pool_no);
         let ids: Vec<i64> = conn
             .zrange(&zset_key, 0, 0)
             .await
