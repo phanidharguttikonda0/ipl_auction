@@ -480,6 +480,18 @@ impl RedisConnection {
         Ok(())
     }
 
+    pub async fn reset_skipped_pool(&self, room_id: &str) -> Result<(), redis::RedisError> {
+        tracing::info!("resetting skipped pool");
+        let mut conn = self.connection.clone();
+        let key = format!("room:{}:skipped_pool", room_id);
+
+        redis::cmd("DEL")
+        .arg(&key)
+        .query_async::<()>(&mut conn).await? ;
+
+        Ok(())
+    }
+
     pub async fn mark_skipped(&self, room_id: &str, participant_id: i32) -> Result<u8, redis::RedisError> {
         let mut conn = self.connection.clone();
         let key = format!("room:{}:skip_state", room_id);
@@ -492,6 +504,43 @@ impl RedisConnection {
 
         Ok(skip_count)
     }
+
+    pub async fn mark_participant_skipped_pool(&self, room_id: &str, participant_id: i32) -> Result<(), redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let key = format!("room:{}:skipped_pool", room_id);
+        redis::cmd("SADD")
+            .arg(&key)
+            .arg(participant_id)
+            .query_async::<()>(&mut conn).await?;
+
+        Ok(())
+    }
+
+    pub async fn is_participant_skipped_pool(
+        &self,
+        room_id: &str,
+        participant_id: i32,
+    ) -> Result<bool, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let key = format!("room:{}:skipped_pool", room_id);
+
+        let exists: bool = redis::cmd("SISMEMBER")
+            .arg(&key)
+            .arg(participant_id)
+            .query_async(&mut conn)
+            .await?;
+
+        Ok(exists)
+    }
+
+
+    pub async fn get_skipped_pool_count(&self, room_id: &str) -> Result<u8, redis::RedisError> {
+        let mut conn = self.connection.clone();
+        let key = format!("room:{}:skipped_pool_count", room_id);
+        let skip_count: u8 = redis::cmd("SCARD").arg(&key).query_async(&mut conn).await?;
+
+        Ok(skip_count)
+    }
     
     pub async fn get_skipped_count(&self, room_id: &str) -> Result<u8, redis::RedisError> {
         let mut conn = self.connection.clone();
@@ -501,6 +550,35 @@ impl RedisConnection {
             .query_async::<u8>(&mut conn).await? ;
         Ok(skip_count)
     }
+
+    pub async fn get_player_from_next_pool(&self, room_id: &str) -> Result<(i32,String), redis::RedisError> {
+        let next_player = self.get_current_player(room_id).await?.unwrap();
+        if next_player.pool_no == 12 {
+            return Ok((-1,"completed".to_string()))
+        }
+        let redis_key = format!("players_{}", next_player.pool_no+1);
+        tracing::info!("current pool {} next pool {}", next_player.pool_no, redis_key);
+        let next_player = self.get_smallest_player_id_by_pool(next_player.pool_no+1)
+        .await.unwrap().unwrap();
+        Ok((next_player as i32, "".to_string()))
+    }
+
+    pub async fn get_smallest_player_id_by_pool(
+        &self,
+        pool_no: i16,
+    ) -> Result<Option<i64>, String> {
+        let mut conn = self.connection.clone();
+
+        let zset_key = format!("players_{}:ids", pool_no);
+
+        let ids: Vec<i64> = conn
+            .zrange(&zset_key, 0, 0)
+            .await
+            .map_err(|e| format!("Redis ZRANGE failed: {}", e))?;
+
+        Ok(ids.first().copied())
+    }
+
 
     pub async fn is_skipped(&self, room_id: &str, participant_id: i32 ) -> Result<bool, redis::RedisError> {
         let mut conn = self.connection.clone();
@@ -529,7 +607,7 @@ impl RedisConnection {
     ) -> Result<(), String> {
         let mut conn = self.connection.clone();
 
-        // 1️⃣ Grouping players with pools
+        // 1️⃣ Group players by pool
         let mut pool_map: std::collections::HashMap<i16, Vec<Player>> =
             std::collections::HashMap::new();
 
@@ -540,20 +618,21 @@ impl RedisConnection {
                 .push(player);
         }
 
-        // 2️⃣ Iterating over each pool and checking whether that pool exists in redis if not adding
+        // 2️⃣ Iterate over each pool
         for (pool_no, pool_players) in pool_map {
-            let redis_key = format!("players_{}", pool_no);
+            let hash_key = format!("players_{}", pool_no);
+            let zset_key = format!("players_{}:ids", pool_no);
 
             // 3️⃣ Check if pool already exists
             let exists: bool = conn
-                .exists(&redis_key)
+                .exists(&hash_key)
                 .await
                 .map_err(|e| format!("Redis EXISTS failed: {}", e))?;
 
             if exists {
                 tracing::info!(
                 "⏭️ Pool '{}' already exists, skipping",
-                redis_key
+                hash_key
             );
                 continue;
             }
@@ -561,26 +640,37 @@ impl RedisConnection {
             tracing::info!(
             "✅ Loading {} players into '{}'",
             pool_players.len(),
-            redis_key
+            hash_key
         );
 
-            // 4️⃣ Insert all players in this pool
+            // 4️⃣ Insert players into HASH + ZSET
             for player in pool_players {
                 let player_json = serde_json::to_string(&player)
                     .map_err(|e| format!("Serialize error: {}", e))?;
 
+                // Store player data
                 conn.hset::<_, _, _, ()>(
-                    &redis_key,
+                    &hash_key,
                     player.id,
                     player_json,
                 )
                     .await
                     .map_err(|e| format!("Redis HSET failed: {}", e))?;
+
+                // Store sorted player_id
+                conn.zadd::<_, _, _, ()>(
+                    &zset_key,
+                    player.id,
+                    player.id as f64,
+                )
+                    .await
+                    .map_err(|e| format!("Redis ZADD failed: {}", e))?;
             }
         }
 
         Ok(())
     }
+
 
 
 
@@ -1063,7 +1153,7 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
 
     let message ;
     if sold  {
-        message = get_next_player(room_id, player_id, bid_expiry, pause_status).await ;
+        message = get_next_player(room_id, player_id, bid_expiry, pause_status, &app_state).await ;
     }else {
         message = Message::text("Auction was Paused");
     }
@@ -1081,10 +1171,22 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
         bid_expiry = bid_expiry
     )
 )]
-pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, pause_status: bool) -> Message {
+pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, pause_status: bool, app_state: &Arc<AppState>) -> Message {
     // we are going to get the next player and broadcasting the next player
-    let next_player = player_id + 1 ;
-    let mut redis_connection = RedisConnection::new().await ;
+    let mut next_player = player_id + 1 ;
+    let mut redis_connection = app_state.redis_connection.clone();
+    if app_state.rooms.read().await.len() == app_state.redis_connection.get_skipped_pool_count(room_id).await.unwrap() as usize {
+        let result  = redis_connection.get_player_from_next_pool(room_id).await.map_err(
+            |e| {
+                tracing::error!("error while getting next player_id from next pool room_id {}", room_id) ;
+            }
+        ).unwrap() ;
+        redis_connection.reset_skipped_pool(room_id).await.expect("error while resetting skipped pool") ;
+        if result.0 == -1 {
+            return Message::text("Auction Completed with this pool") ;
+        }
+        next_player = result.0 ;
+    }
     let player: RedisResult<Player> = redis_connection.get_player(next_player, room_id).await;
     let mut message ;
     match player {
