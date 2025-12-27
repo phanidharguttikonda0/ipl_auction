@@ -1,34 +1,31 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use axum::body::Bytes;
-use axum::Extension;
 use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::extract::ws::{WebSocket, Message};
 use axum::response::IntoResponse;
-use redis::aio::AsyncPushSender;
-use tokio::sync::broadcast;
 use crate::models::app_state::AppState;
-use crate::models::auction_models::{AuctionParticipant, Bid, BidOutput, ChatMessage, NewJoiner, ParticipantAudio, RoomMeta};
-use crate::services::auction_room::{RedisConnection};
+use crate::models::auction_models::{AuctionParticipant, Bid, ChatMessage, ParticipantAudio, RoomMeta};
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
-use crate::{models, services};
-use crate::models::authentication_models::Claims;
-use crate::models::background_db_tasks::DBCommandsAuctionRoom;
+use crate::{services};
+use crate::models::background_db_tasks::{DBCommandsAuctionRoom, CompletedRoom};
 use crate::models::room_models::Participant;
 use crate::models::webRTC_models::SignalingMessage;
-use crate::services::other::get_previous_team_full_name;
+
 
 pub async fn ws_handler(ws: WebSocketUpgrade, Path((room_id, participant_id)): Path<(String, i32)>, State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| socket_handler(socket, room_id, participant_id, app_state))
 }
 
-async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_id: i32, app_state: Arc<AppState>) {
+async fn socket_handler(web_socket: WebSocket, room_id: String,participant_id: i32, app_state: Arc<AppState>) {
     tracing::info!("A new websocket connection has been established");
     // if room doesn't exist, we are going to create a broadcast channel over here
     let mut rooms = app_state.rooms.write().await;
-    let (mut tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>() ;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>() ;
     let (mut sender, mut receiver) = web_socket.split() ;
+
+
     // as the sender and receiver were not clonable, we are using a channel to send messages to the clients
 
 
@@ -59,7 +56,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
     let room_status = match room_status {
         Ok(room_status) => room_status,
         Err(err) => {
-            tracing::error!("error in getting room_status in ws") ;
+            tracing::error!("error in getting room_status in ws {}", err) ;
             sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
             return;
         }
@@ -69,7 +66,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
         Ok(result) => {
             result
         },Err(err ) => {
-            tracing::warn!("unable to get team_selected by a participant") ;
+            tracing::warn!("unable to get team_selected by a participant {}", err) ;
             sender.send(Message::text("Server Side Error, Unable to create connection")).await.expect("unable to send message");
             drop(rooms) ;
             return;
@@ -78,6 +75,41 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
 
     if let Some(vec) = rooms.get_mut(&room_id) {
+        {
+            // tracing::info!("*** doing a double check if user was opened in multiple tabs") ;
+            // let mut index = 0 ;
+            // for participant in vec.iter() {
+            //     if participant.0 == participant_id {
+            //         tracing::info!("we got a duplicate") ;
+            //         break;
+            //     }
+            //     index += 1 ;
+            // }
+            // if index < vec.len() {
+            //     tracing::info!(" as index is less than the number of participants, closing the transaction") ;
+            //     let mut previous_value = vec.remove(index) ;
+            //     let _ = previous_value.1.send(Message::text("close-connection"));
+            //     // we need this close frame, and wait for this to complete
+            //     /*
+            //         Browser refresh
+            //         │
+            //         ├─ Old WS still open
+            //         │
+            //         ├─ New WS connects (same participant_id)
+            //         │
+            //         ├─ Server removes old tx and sends "close-connection"
+            //         │
+            //         ├─ Browser receives CLOSE frame for OLD socket
+            //         │   ❌ Browser may treat it as connection-level close
+            //         │
+            //         ├─ New socket handshake is still in progress
+            //         │
+            //         └─ Browser reports WebSocket error
+            //
+            //         So we are waiting to execute the whole thing
+            //     */
+            // } this logic still failing sometimes that too only in chrome browser, but working in firefox
+        }
         vec.push((participant_id, tx)) ;
         tracing::info!("Room exists, adding participant {}", participant_id);
     }else{
@@ -206,23 +238,46 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
 
         async move {
             while let Some(msg) = rx.recv().await {
+
+                // ⃣ Checking if message is Text
+                if let Message::Text(text) = &msg {
+                    if text.as_str() == "close-connection" {
+                        tracing::info!(
+                        "Closing connection for participant {}",
+                        participant_id
+                    );
+
+                        // Send WebSocket Close frame (graceful)
+                        let _ = sender.send(Message::Close(None)).await;
+
+                        // Removing participant from room (DROPING sender)
+                        let mut rooms = app_state.rooms.write().await;
+                        if let Some(vec) = rooms.get_mut(&room_id) {
+                            vec.retain(|(id, _)| *id != participant_id);
+                        }
+
+                        break; // exiting loop → rx dropped → task ends
+                    }
+                }
+
+                // 4️⃣ Normal forwarding
                 if let Err(err) = sender.send(msg).await {
                     tracing::warn!("WebSocket send failed: {}", err);
 
-                    // 🔥 Remove this participant from the room
+                    // Cleanup on failure
                     let mut rooms = app_state.rooms.write().await;
                     if let Some(vec) = rooms.get_mut(&room_id) {
                         vec.retain(|(id, _)| *id != participant_id);
                     }
-                    drop(rooms);
 
-                    break; // stop ONLY this user's forwarding task
+                    break;
                 }
             }
 
             tracing::info!("Forwarding task ended for {}", participant_id);
         }
     });
+
 
 
 
@@ -305,16 +360,33 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                     // when front-end has disconnected automatically it's going to be the end.
                                                     // we are going to change the state of the auction to completed such that this room get's invalid
                                                     match app_state.database_connection.update_room_status(&room_id, "completed").await {
-                                                        Ok(result) => {
+                                                        Ok(_) => {
                                                             tracing::info!("room status changed to completed") ;
                                                             // here we are going to remove the data from redis
                                                             tracing::info!("successfully removed the room from redis") ;
                                                             // we are going to make sure add the completed_at field and also unsold players list from this auction
 
                                                             // deleting the unsold players list
-                                                            app_state.database_connection.remove_unsold_players(&room_id).await.expect("error occurred while deleting unsold players") ;
+                                                            //app_state.database_connection.remove_unsold_players(&room_id).await.expect("error occurred while deleting unsold players") ;
+                                                            app_state.auction_room_database_task_executor.send(
+                                                                DBCommandsAuctionRoom::CompletedRoom(CompletedRoom {
+                                                                    room_id: room_id.clone()
+                                                                })
+                                                            ).unwrap() ;
+                                                            /*
+                                                                over here we are going to assign a background task which removes unsold players from the unsold_players table
+                                                                and store it in another table , called list of completed rooms unsold players.
+
+                                                                And then if the room was created and was not been in completed status after 24 hours a cron job,
+                                                                will executed and change the status and remove the redis logic and everything, for every 24 hours.
+                                                                or when ever i run the logic explicitly
+
+                                                                another logic, was asking the user to allow location when they are signing in.
+
+                                                                lastly adding connector_id to disable multiple joining of room.
+                                                            */
                                                             // updating the set_completed_at
-                                                            app_state.database_connection.set_completed_at(&room_id).await.expect("error while updating completed_at") ;
+                                                            
 
                                                             message = Message::text("exit") ; // in front-end when this message was executed then it must stop the ws connection with server
                                                         },
@@ -329,7 +401,7 @@ async fn socket_handler(mut web_socket: WebSocket, room_id: String,participant_i
                                                     message = Message::text("Unable to End Auction, Due to Technical Problem") ;
                                                 }
                                             },
-                                            Err(err) => {
+                                            Err(_) => {
                                                 tracing::info!("Unable to get the room") ;
                                                 message = Message::text("Till all participants brought at least 15 player") ;
                                             }

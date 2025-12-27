@@ -326,20 +326,34 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn get_team_players(&self, participant_id: i32) -> Result<Vec<PlayerDetails>, sqlx::Error>
+    pub async fn get_team_players(&self, participant_id: i32, status: &str) -> Result<Vec<PlayerDetails>, sqlx::Error>
     {
-        let rows = sqlx::query(
-            r#"
-        SELECT
-            sp.player_id,
-            p.name,
-            p.role,
-            sp.amount
-        FROM sold_players sp
-        JOIN players p ON sp.player_id = p.id
-        WHERE sp.participant_id = $1
-        "#
-        )
+        let query = if status == "completed" {
+            tracing::info!("status was completed so getting from completed_rooms_sold_players") ;
+                r#"
+                SELECT
+                sp.player_id,
+                p.name,
+                p.role,
+                sp.amount
+            FROM COMPLETED_ROOMS_SOLD_PLAYERS sp
+            JOIN players p ON sp.player_id = p.id
+            WHERE sp.participant_id = $1
+            "#
+        } else {
+            tracing::info!("status was not completed so getting from sold_players") ;
+                r#"
+            SELECT
+                sp.player_id,
+                p.name,
+                p.role,
+                sp.amount
+            FROM sold_players sp
+            JOIN players p ON sp.player_id = p.id
+            WHERE sp.participant_id = $1
+            "#
+        };
+        let rows = sqlx::query(query)
             .bind(participant_id)
             .fetch_all(&self.connection)
             .await;
@@ -507,6 +521,7 @@ impl DatabaseAccess {
 
     pub async fn get_sold_players(&self, room_id: String, page_no: i32, offset: i32) -> Result<Vec<SoldPlayerOutput>, sqlx::Error> {
         tracing::info!("getting sold players") ;
+
         let result = sqlx::query_as::<_, SoldPlayerOutput>(
             r#"
         SELECT
@@ -679,5 +694,101 @@ impl DatabaseAccess {
             }
         }
     }
+
+    pub async fn add_to_completed_room_sold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("adding to completed rooms sold players table") ;
+        let query_result = sqlx::query("
+        INSERT INTO COMPLETED_ROOMS_SOLD_PLAYERS (
+        player_id,
+        participant_id,
+        room_id,
+        amount,
+        created_at
+        )SELECT
+        player_id,
+        participant_id,
+        room_id,
+        amount,
+        created_at
+        FROM sold_players
+        WHERE room_id = $1
+        ").bind(room_id)
+            .execute(&self.connection).await ;
+
+        match query_result {
+            Ok(result) => {
+                let total_rows_executed = result.rows_affected() ;
+                if total_rows_executed > 0 {
+                    tracing::info!("result executed successfully for room_id {}", room_id) ;
+                }else {
+                    tracing::warn!("result was not executed , not even a single row for room_id {}", room_id) ;
+                }
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("error occurred while sharing the sold players to completed rooms table for room_id {} and err was {}", room_id, err) ;
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn add_to_completed_room_unsold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("adding to completed rooms unsold players table") ;
+        let query_result = sqlx::query("
+            INSERT INTO COMPLETED_ROOMS_UNSOLD_PLAYERS (
+                player_id,
+                room_id,
+                created_at
+            )
+            SELECT
+                player_id,
+                room_id,
+                created_at
+            FROM unsold_players
+            WHERE room_id = $1
+        ")
+        .bind(room_id)
+        .execute(&self.connection).await ;
+
+        match query_result {
+            Ok(result) => {
+                let total_rows_executed = result.rows_affected() ;
+                if total_rows_executed > 0 {
+                    tracing::info!("result executed successfully for room_id {}", room_id) ;
+                }else {
+                    tracing::warn!("result was not executed , not even a single row for room_id {}", room_id) ;
+                }
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("error occurred while sharing the unsold players to completed rooms table for room_id {} and err was {}", room_id, err) ;
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn remove_sold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("removing sold players from sold players table") ;
+        let query_result = sqlx::query("
+        DELETE FROM sold_players where room_id = $1")
+            .bind(room_id)
+            .execute(&self.connection).await ;
+        match query_result {
+            Ok(result) => {
+                let total_rows_deleted = result.rows_affected() ;
+                if total_rows_deleted > 0 {
+                    tracing::info!("Delete of sold_players executed successfully for room_id {}", room_id) ;
+                }else {
+                    tracing::warn!("Delete of sold_players was not executed , not even a single row was deleted for room_id {}", room_id) ;
+                }
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("error occurred while deleting the unsold players for room_id {} and err was {}", room_id, err) ;
+                Err(err)
+            }
+        }
+    }
+
 
 }

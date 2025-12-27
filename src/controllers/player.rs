@@ -59,12 +59,14 @@ pub async fn get_team_details(State(app_state): State<Arc<AppState>>, Extension(
 }
 
 
-pub async fn get_team_players(State(app_state): State<Arc<AppState>>, Extension(claims):Extension<Claims>,Path(participant_id): Path<i32>) -> Result<(StatusCode, Json<Vec<PlayerDetails>>), (StatusCode, Json<serde_json::Value>)> {
+pub async fn get_team_players(State(app_state): State<Arc<AppState>>, Extension(claims):Extension<Claims>,Path((participant_id, status)): Path<(i32, String)>) -> Result<(StatusCode, Json<Vec<PlayerDetails>>), (StatusCode, Json<serde_json::Value>)> {
     tracing::info!("getting team players for participant {}", participant_id);
     /*
         we are going to return each player name, role and their brought price of all players that are brought
+        -> here we are going to need to get status , based on the status we are going to call from the
+        completed_rooms_sold_players or from the just sold_players
     */
-    match app_state.database_connection.get_team_players(participant_id).await {
+    match app_state.database_connection.get_team_players(participant_id, &status).await {
         Ok(players) => {
             tracing::info!("got the players of the team");
             Ok((

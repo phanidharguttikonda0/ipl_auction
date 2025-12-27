@@ -25,12 +25,17 @@ pub struct RoomStatus {
     pub status: String
 }
 
+pub struct CompletedRoom {
+    pub room_id: String,
+}
+
 pub enum DBCommandsAuctionRoom { //inside auction room db tasks will be executed by this
     UpdateRemainingRTMS(ParticipantId),
     PlayerSold(SoldPlayer),
     PlayerUnSold(UnSoldPlayer),
     BalanceUpdate(BalanceUpdate),
     UpdateRoomStatus(RoomStatus),
+    CompletedRoom(CompletedRoom),
 }
 
 pub struct UserExternalDetails {
