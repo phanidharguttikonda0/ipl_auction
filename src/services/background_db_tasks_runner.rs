@@ -63,15 +63,7 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                 }
             },
             DBCommandsAuctionRoom::CompletedRoom(room_id) => {
-                tracing::info!("completed Auction Room was {}",room_id.room_id) ;
-                // firstly we are gonna transfer all sold and unsold players list to the completed_rooms_* table
-                let result1 = app_state.database_connection.add_to_completed_room_sold_players(&room_id.room_id).await ;
-                let result2 = app_state.database_connection.add_to_completed_room_unsold_players(&room_id.room_id).await ;
-                // now we are gonna remove the players from the sold and unsold players from the sold_players and unsold_players tables
-                let result3 = app_state.database_connection.remove_sold_players(&room_id.room_id).await ;
-                let result4 = app_state.database_connection.remove_unsold_players(&room_id.room_id).await ;
-                let result5 = app_state.database_connection.set_completed_at(&room_id.room_id).await.expect("error while updating completed_at") ;
-                tracing::info!("Successfully completed background work for complete auction room with room_id {}", room_id.room_id) ;
+                auction_completed_tasks_executor(&room_id.room_id, &app_state).await ;
             }
         }
     }
@@ -142,4 +134,17 @@ pub async fn get_location(ip_address: &str, api_key: &str) -> Result<String, req
         data.postal.unwrap_or_else(|| "Unknown".to_string()),
         data.country.unwrap_or_else(|| "Unknown".to_string())
     ))
+}
+
+
+pub async fn auction_completed_tasks_executor(room_id: &str, app_state: &Arc<AppState>) {
+    tracing::info!("completed Auction Room was {}",room_id) ;
+    // firstly we are gonna transfer all sold and unsold players list to the completed_rooms_* table
+    let result1 = app_state.database_connection.add_to_completed_room_sold_players(room_id).await ;
+    let result2 = app_state.database_connection.add_to_completed_room_unsold_players(room_id).await ;
+    // now we are gonna remove the players from the sold and unsold players from the sold_players and unsold_players tables
+    let result3 = app_state.database_connection.remove_sold_players(room_id).await ;
+    let result4 = app_state.database_connection.remove_unsold_players(room_id).await ;
+    let result5 = app_state.database_connection.set_completed_at(room_id).await.expect("error while updating completed_at") ;
+    tracing::info!("Successfully completed background work for complete auction room with room_id {}", room_id) ;
 }

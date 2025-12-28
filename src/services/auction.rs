@@ -637,7 +637,7 @@ impl DatabaseAccess {
         let result = sqlx::query( r#"
             UPDATE rooms
             SET completed_at = NOW()
-            WHERE id = $1
+            WHERE id = $1 AND completed_at is NULL
             "#,)
             .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
             .execute(&self.connection).await ;

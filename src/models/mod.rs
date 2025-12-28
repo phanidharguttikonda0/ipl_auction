@@ -6,3 +6,4 @@ pub mod authentication_models;
 pub mod webRTC_models;
 pub mod background_db_tasks;
 pub mod others;
+pub mod admin_models;
