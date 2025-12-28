@@ -278,9 +278,24 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn get_team_details(&self, participant_id: i32) -> Result<(i32,i32,i32,i32), sqlx::Error> {
-        let rows = sqlx::query(
-            r#"
+    pub async fn get_team_details(&self, participant_id: i32, room_status: &str) -> Result<(i32,i32,i32,i32), sqlx::Error> {
+
+        let query = if room_status == "completed" {
+            tracing::info!("room status was completed inside get_team_details");
+            "
+                    SELECT
+                        (SELECT COUNT(*)
+                         FROM completed_rooms_sold_players
+                         WHERE participant_id = $1) AS total_count,
+                        p.role,
+                        COUNT(*) AS role_count
+                    FROM completed_rooms_sold_players sp
+                    JOIN players p ON sp.player_id = p.id
+                    WHERE sp.participant_id = $1
+                    GROUP BY p.role
+                    "
+        }else {
+            "
                     SELECT
                         (SELECT COUNT(*)
                          FROM sold_players
@@ -291,8 +306,10 @@ impl DatabaseAccess {
                     JOIN players p ON sp.player_id = p.id
                     WHERE sp.participant_id = $1
                     GROUP BY p.role
-                    "#,
-                        )
+                    "
+        } ;
+
+        let rows = sqlx::query(query)
                             .bind(participant_id)
                             .fetch_all(&self.connection)
                             .await;
@@ -382,26 +399,38 @@ impl DatabaseAccess {
     }
 
 
-    pub async fn get_remaining_balance(&self, participant_id: i32) -> Result<f32, sqlx::Error> {
-        let balance = sqlx::query("select purse_remaining from participants where id=$1")
+    pub async fn get_remaining_balance_and_room_status(
+        &self,
+        participant_id: i32,
+    ) -> Result<(f32, String), sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+        SELECT
+            p.purse_remaining,
+            r.status::Text
+        FROM participants p
+        JOIN rooms r
+            ON p.room_id = r.id
+        WHERE p.id = $1
+        "#,
+        )
             .bind(participant_id)
-            .fetch_one(&self.connection).await ;
+            .fetch_one(&self.connection)
+            .await?;
 
-        match balance {
-            Ok(balance) => {
-                tracing::info!("got the balance") ;
-                let value = balance.get("purse_remaining") ;
-                tracing::info!("{} -> ", value) ;
-                Ok(value)
-            },
-            Err(err) => {
-                tracing::error!("got error while getting remaining balance") ;
-                tracing::error!("{}", err) ;
-                Err(err)
-            }
-        }
+        let purse_remaining: f32 = row.get("purse_remaining");
+        let room_status: String = row.get("status");
 
+        tracing::info!(
+        "participant_id={} purse_remaining={} room_status={}",
+        participant_id,
+        purse_remaining,
+        room_status
+    );
+
+        Ok((purse_remaining, room_status))
     }
+
 
     pub async fn get_rooms(&self, user_id: i32, timestamp: &str, per_page: i32, room_id: &str) -> Result<Vec<Rooms>, sqlx::Error> {
 
