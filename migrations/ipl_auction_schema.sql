@@ -522,6 +522,13 @@ ALTER TABLE ONLY public.unsold_players
 ALTER TABLE ONLY public.unsold_players
     ADD CONSTRAINT unsold_players_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.rooms(id) ON DELETE CASCADE;
 
+ALTER TABLE public.user_feedback
+    ADD CONSTRAINT fk_user_feedback_user
+        FOREIGN KEY (user_id)
+            REFERENCES public.users(id)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE;
+
 
 --
 -- PostgreSQL database dump complete

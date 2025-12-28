@@ -7,7 +7,7 @@ use crate::models::app_state::AppState;
 pub fn players_routes() -> Router<Arc<AppState>>{
     Router::new()
         .route("/get-team-details/{participant_id}", get(get_team_details))
-        .route("/get-team-players/{participant_id}", get(get_team_players))
+        .route("/get-team-players/{participant_id}/{status}", get(get_team_players))
         .route("/get-unsold-players/{room_id}/{page_no}/{offset}", get(get_unsold_players))
         .route("/get-sold-players/{room_id}/{page_no}/{offset}", get(get_sold_players))
         .route("/get-pool/{pool_id}", get(get_players_from_pool))

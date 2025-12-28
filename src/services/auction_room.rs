@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use redis::{AsyncCommands, Commands, RedisResult};
-use crate::auction::{bid_allowance_handler, broadcast_handler, send_message_to_participant};
+use crate::auction::{bid_allowance_handler, broadcast_handler, send_himself, send_message_to_participant};
 use crate::models::app_state::{AppState, Player, PoolPlayer};
 use crate::models::auction_models::{AuctionParticipant, Bid, RoomMeta, SoldPlayer};
 
@@ -433,7 +433,9 @@ impl RedisConnection {
             } else {
                 next_bid_increment = 0.25;
             }
+            tracing::info!("incrementing bid by {}", next_bid_increment);
             next_bid_increment = round_two_decimals(bid.bid_amount + next_bid_increment);
+            tracing::info!("after increment the bid amount was {}", next_bid_increment);
             bid.bid_amount = next_bid_increment;
             if participant_id != -1 {
                 let participant = self.get_participant(room_id, participant_id).await.expect("team name not found").expect("no participant found");
@@ -441,6 +443,7 @@ impl RedisConnection {
             }
         }
         if allowed {
+            tracing::info!("the bid we are currently storing was {:?}", bid);
             self.set_current_bid(room_id, bid).await.expect("failed to set current bid");
 
             if bid_expiry != 0 {
@@ -1198,9 +1201,12 @@ pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, paus
         ).unwrap() ;
         redis_connection.reset_skipped_pool(room_id).await.expect("error while resetting skipped pool") ;
         if result.0 == -1 {
-            return Message::text("Auction Completed with this pool") ;
+           tracing::info!("last pool cannot be skipped");
+
+        }else {
+            next_player = result.0 ;
         }
-        next_player = result.0 ;
+
     }
     tracing::info!("*=* next player id is {}", next_player) ;
     let player: RedisResult<Player> = redis_connection.get_player(next_player, room_id).await;

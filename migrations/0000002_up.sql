@@ -24,7 +24,7 @@ CREATE TYPE feedback_type_enum AS ENUM ('bug', 'rating', 'improvements');
 -- Create table
 CREATE TABLE user_feedback (
                                id BIGSERIAL PRIMARY KEY,
-                               user_id INT NULL,
+                               user_id INT not NULL,
                                feedback_type feedback_type_enum NOT NULL,
                                rating_value SMALLINT NULL CHECK (rating_value BETWEEN 1 AND 5),
                                title VARCHAR(255) NOT NULL,
@@ -37,3 +37,58 @@ ALTER TABLE rooms ADD COLUMN strict_mode BOOLEAN default false;
 ALTER TABLE users ADD COLUMN location Text;
 ALTER table players ADD COLUMN profile_url Text;
 ALTER TABLE players ADD COLUMN pool_no SMALLINT;
+ALTER TABLE user_feedback
+    ADD CONSTRAINT fk_user_feedback_user
+        FOREIGN KEY (user_id)
+            REFERENCES users(id)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE;
+
+-- WE ARE GOING TO ADD TIME STAMP FROM EACH AND EVERY RECORD OF PLAYER SOLD AND PLAYER UNSOLD
+ALTER TABLE sold_players
+    ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+ALTER TABLE unsold_players
+    ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+
+-- THESE ARE THE NEW TABLES FROM NOW AFTER AUCTION COMPLETION EVERY SOLD AND UNSOLD PLAYER MOVES TO THESE TABLES
+CREATE TABLE COMPLETED_ROOMS_UNSOLD_PLAYERS (
+  player_id INT NOT NULL,
+  room_id UUID NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  PRIMARY KEY (player_id, room_id),
+  FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+
+CREATE TABLE COMPLETED_ROOMS_SOLD_PLAYERS (
+                                              player_id INT NOT NULL,
+                                              participant_id INT NOT NULL,
+                                              room_id UUID NOT NULL,
+                                              amount REAL NOT NULL,
+                                              created_at TIMESTAMP NOT NULL,
+                                              PRIMARY KEY (player_id, room_id),
+                                              FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+                                              FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE,
+                                              FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+);
+-- Fast lookup by room
+CREATE INDEX idx_completed_sold_room_id
+    ON COMPLETED_ROOMS_SOLD_PLAYERS (room_id);
+
+-- Fast lookup by participant (buyer history)
+CREATE INDEX idx_completed_sold_participant_id
+    ON COMPLETED_ROOMS_SOLD_PLAYERS (participant_id);
+
+-- Optional: time-based queries ( not adding now , in future if needed we will add it )
+CREATE INDEX idx_completed_sold_created_at
+    ON COMPLETED_ROOMS_SOLD_PLAYERS (created_at);
+
+-- Fast lookup by room
+CREATE INDEX idx_completed_unsold_room_id
+    ON COMPLETED_ROOMS_UNSOLD_PLAYERS (room_id);
+
+-- Optional: time-based queries ( not adding now , in future if needed we will add it )
+CREATE INDEX idx_completed_unsold_created_at
+    ON COMPLETED_ROOMS_UNSOLD_PLAYERS (created_at);

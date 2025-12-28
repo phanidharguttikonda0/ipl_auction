@@ -120,7 +120,7 @@ pub async fn bid(room_id: &str, participant_id: i32,app_state: &AppState, timer_
         If previously the same participant has send the bid, then that shouldn't be considered
 
      */
-    let mut current_bid = redis_connection.get_current_bid(room_id).await.unwrap() ;
+    let current_bid = redis_connection.get_current_bid(room_id).await.unwrap() ;
     let mut current_bid = match current_bid {
         Some(bid) => bid,
         None => {
@@ -158,6 +158,7 @@ pub async fn bid(room_id: &str, participant_id: i32,app_state: &AppState, timer_
                 }else {
                     expiry_time_ = expiry_time ;
                 }
+                tracing::info!("the current bid {:?}", current_bid);
                 let result =  redis_connection.update_current_bid(room_id, current_bid, expiry_time_, participant_id, room_mode).await ;
                 match result {
                     Ok(amount) => {
