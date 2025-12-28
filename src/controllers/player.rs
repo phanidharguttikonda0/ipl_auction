@@ -22,10 +22,10 @@ pub async fn get_team_details(State(app_state): State<Arc<AppState>>, Extension(
     */
 
     // first we need to get the all  these counts and remaning balance ,we need to get from the participants
-    let remaining_balance = app_state.database_connection.get_remaining_balance(participant_id).await ;
-    match remaining_balance {
-        Ok(remaining_balance) =>{
-            let result = app_state.database_connection.get_team_details(participant_id).await;
+    let result = app_state.database_connection.get_remaining_balance_and_room_status(participant_id).await ;
+    match result {
+        Ok((remaining_balance, room_status)) =>{
+            let result = app_state.database_connection.get_team_details(participant_id, &room_status).await;
             match result {
                 Ok((total_players, batsmans, bowlers, all_rounder)) => {
                     Ok(
