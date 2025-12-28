@@ -712,7 +712,7 @@ impl DatabaseAccess {
         created_at
         FROM sold_players
         WHERE room_id = $1
-        ").bind(room_id)
+        ").bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
             .execute(&self.connection).await ;
 
         match query_result {
@@ -747,7 +747,7 @@ impl DatabaseAccess {
             FROM unsold_players
             WHERE room_id = $1
         ")
-        .bind(room_id)
+        .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
         .execute(&self.connection).await ;
 
         match query_result {
@@ -771,7 +771,7 @@ impl DatabaseAccess {
         tracing::info!("removing sold players from sold players table") ;
         let query_result = sqlx::query("
         DELETE FROM sold_players where room_id = $1")
-            .bind(room_id)
+            .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
             .execute(&self.connection).await ;
         match query_result {
             Ok(result) => {

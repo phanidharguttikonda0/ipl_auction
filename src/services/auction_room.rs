@@ -433,7 +433,9 @@ impl RedisConnection {
             } else {
                 next_bid_increment = 0.25;
             }
+            tracing::info!("incrementing bid by {}", next_bid_increment);
             next_bid_increment = round_two_decimals(bid.bid_amount + next_bid_increment);
+            tracing::info!("after increment the bid amount was {}", next_bid_increment);
             bid.bid_amount = next_bid_increment;
             if participant_id != -1 {
                 let participant = self.get_participant(room_id, participant_id).await.expect("team name not found").expect("no participant found");
@@ -441,6 +443,7 @@ impl RedisConnection {
             }
         }
         if allowed {
+            tracing::info!("the bid we are currently storing was {:?}", bid);
             self.set_current_bid(room_id, bid).await.expect("failed to set current bid");
 
             if bid_expiry != 0 {

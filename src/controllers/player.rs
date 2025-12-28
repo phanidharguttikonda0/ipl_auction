@@ -66,6 +66,7 @@ pub async fn get_team_players(State(app_state): State<Arc<AppState>>, Extension(
         -> here we are going to need to get status , based on the status we are going to call from the
         completed_rooms_sold_players or from the just sold_players
     */
+    tracing::info!("the status of the room was {}", status) ;
     match app_state.database_connection.get_team_players(participant_id, &status).await {
         Ok(players) => {
             tracing::info!("got the players of the team");
