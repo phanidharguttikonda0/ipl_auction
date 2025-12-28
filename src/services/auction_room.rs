@@ -410,7 +410,7 @@ impl RedisConnection {
         Ok(())
     }
 
-    pub async fn update_current_bid(&self, room_id: &str, mut bid: Bid, bid_expiry: u8, participant_id: i32, strict_mode: bool) -> Result<f32, String>{
+    pub async fn update_current_bid(&self, room_id: &str, mut bid: Bid, bid_expiry: u8, participant_id: i32, strict_mode: bool, bid_should_not_increment: bool) -> Result<f32, String>{
         let mut conn = self.connection.clone();
 
         let key = format!("room:{}:current_bid", room_id);
@@ -422,7 +422,10 @@ impl RedisConnection {
         }
         let mut next_bid_increment = bid.bid_amount;
         let mut allowed = true ;
-        if bid.participant_id != 0 {
+        if bid.participant_id != 0 && !bid_should_not_increment { 
+            // in cases where, bid is not supposed to increment like in rtm cases, where we infront increment the bid
+            // and we will pass new bid , in such cases no need to increment and also in skip cases the highest bidder
+            // will get the players, in such case also no need to increment, so this is very important in those cases.
             if previous_bid_amount == 0.0 {
                 next_bid_increment = bid.base_price;
             } else if previous_bid_amount < 1.0 {
@@ -1002,7 +1005,7 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
         let bid_ = Bid::new(0, 0,0.0,0.0, false, false) ;
         redis_connection.reset_skip(room_id).await.expect("error while resetting skip_count") ;
         // bid expiry zero means it will not use timer just update the current bid value
-        redis_connection.update_current_bid(room_id, bid_, 0, -1, true).await.expect("") ;
+        redis_connection.update_current_bid(room_id, bid_, 0, -1, true, false).await.expect("") ;
         let mut foreign_players_brought = participant.foreign_players_brought ;
 
         if !current_player.is_indian {
@@ -1106,7 +1109,7 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
                 redis_connection.update_balance(room_id, participant_id, remaining_balance).await.expect("error while updating balance") ;
 
                 let bid = Bid::new(0, 0,0.0,0.0, false, false) ;
-                redis_connection.update_current_bid(room_id, bid, 0, -1, true).await.expect("error while updating the current bid") ;
+                redis_connection.update_current_bid(room_id, bid, 0, -1, true, false).await.expect("error while updating the current bid") ;
                 let mut foreign_players_brought = participant.foreign_players_brought ;
                 if !current_player.is_indian {
                     tracing::info!("he is a foreign player, so updating foreign player count") ;
@@ -1220,7 +1223,7 @@ pub async fn get_next_player(room_id: &str, player_id: i32, bid_expiry: u8, paus
             message = Message::text("Auction was Paused") ;
             tracing::info!("auction was paused and updated last player in redis") ;
            if !pause_status {
-               redis_connection.update_current_bid(room_id, Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry, -1, true).await.expect("unable to update current bid");
+               redis_connection.update_current_bid(room_id, Bid::new(0, next_player, 0.0, player.base_price, false, false), bid_expiry, -1, true, false).await.expect("unable to update current bid");
                tracing::info!("we are going to broadcast the next player, completed with updating current bid with new player") ;
                message = Message::from(serde_json::to_string(&player).unwrap()) ;
            }

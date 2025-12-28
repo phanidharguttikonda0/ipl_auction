@@ -438,7 +438,7 @@ async fn socket_handler(web_socket: WebSocket, room_id: String,participant_id: i
                                 let bid = redis_connection.get_current_bid(&room_id).await.unwrap().unwrap() ;
                                 let bid = Bid::new(participant_id, bid.player_id, bid.bid_amount, bid.base_price, false, true) ;
                                 // adding the bid to the redis
-                                match redis_connection.update_current_bid(&room_id, bid, 1, participant_id, room_mode).await {
+                                match redis_connection.update_current_bid(&room_id, bid, 1, participant_id, room_mode, true).await {
                                     Ok(_) => {},
                                     Err(err) => {
                                         if err.contains("Bid not allowed") {

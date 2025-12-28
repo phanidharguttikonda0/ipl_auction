@@ -77,7 +77,7 @@ pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppSt
             message = Message::from(serde_json::to_string(&player).unwrap());
             // here we are going to add the player as Bid to the redis
             let bid = Bid::new(0, player.id, 0.0, player.base_price, false, false); // no one yet bidded
-            redis_connection.update_current_bid(room_id, bid, expiry_time, -1, room_mode).await.expect("unable to update the bid");
+            redis_connection.update_current_bid(room_id, bid, expiry_time, -1, room_mode,false).await.expect("unable to update the bid");
 
 
             // broadcasting
@@ -159,7 +159,7 @@ pub async fn bid(room_id: &str, participant_id: i32,app_state: &AppState, timer_
                     expiry_time_ = expiry_time ;
                 }
                 tracing::info!("the current bid {:?}", current_bid);
-                let result =  redis_connection.update_current_bid(room_id, current_bid, expiry_time_, participant_id, room_mode).await ;
+                let result =  redis_connection.update_current_bid(room_id, current_bid, expiry_time_, participant_id, room_mode,false).await ;
                 match result {
                     Ok(amount) => {
                         let message = Message::from(serde_json::to_string(&BidOutput{
@@ -187,7 +187,7 @@ pub async fn bid(room_id: &str, participant_id: i32,app_state: &AppState, timer_
             // we need update the current_bid as well
             current_bid.participant_id = 0 ;
             current_bid.bid_amount = 0.0 ;
-            redis_connection.update_current_bid(room_id, current_bid, 0,-1,room_mode).await.unwrap() ;
+            redis_connection.update_current_bid(room_id, current_bid, 0,-1,room_mode,false).await.unwrap() ;
             send_himself(Message::text("Min of 3 participants should be in the room to bid"), participant_id,room_id,app_state).await ;
         }
     }
@@ -237,7 +237,7 @@ pub async fn skip(room_id: &str, participant_id: i32, app_state: &AppState, time
         if redis_connection.check_key_exists(timer_key).await.unwrap() {
             redis_connection.atomic_delete(timer_key).await.expect("unable to delete the room inside skip");
             let current_bid = redis_connection.get_current_bid(room_id).await.unwrap().unwrap() ;
-            redis_connection.update_current_bid(room_id, current_bid,1, -1, room_mode).await.unwrap() ;
+            redis_connection.update_current_bid(room_id, current_bid,1, -1, room_mode, true).await.unwrap() ;
         }else {
             let message = "At this Stage Skip won't work";
             send_himself(Message::text(message), participant_id, room_id, app_state).await ;
@@ -276,7 +276,7 @@ pub async fn instant_rtm_cancel(room_id: &str, participant_id: i32, app_state: &
     redis_connection.atomic_delete(rtm_timer_key).await.unwrap() ;
     let mut current_bid = redis_connection.get_current_bid(room_id).await.unwrap().unwrap() ;
     current_bid.rtm_bid = true ;
-    redis_connection.update_current_bid(room_id, current_bid, 1, -1, room_mode).await.unwrap() ;
+    redis_connection.update_current_bid(room_id, current_bid, 1, -1, room_mode, true).await.unwrap() ;
     send_message_to_participant(participant_id, String::from("Cancelled the RTM"), room_id, app_state).await ;
 }
 
@@ -298,7 +298,7 @@ pub async fn rtm_cancel(room_id: &str, participant_id: i32, app_state: &AppState
     // now we are going to send the same bid with expiry 0
     let mut current_bid = redis_connection.get_current_bid(room_id).await.unwrap().unwrap() ;
     current_bid.is_rtm = true ;  // where the last bided person is the person who used rtm, so we need to keep it as rtm only, such that his rtms will decreased
-    redis_connection.update_current_bid(room_id, current_bid, 1, -1, room_mode).await.unwrap() ;
+    redis_connection.update_current_bid(room_id, current_bid, 1, -1, room_mode, true).await.unwrap() ;
     send_message_to_participant(participant_id, String::from("Cancelled the RTM Price"), room_id, app_state).await ;
 }
 
@@ -345,7 +345,7 @@ pub async fn use_rtm(room_id: &str, participant_id: i32, app_state: &AppState, r
                     // creating the new Bid
                     let bid_ = Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false) ;
                     // adding the bid to the redis
-                    match redis_connection.update_current_bid(room_id, bid_, expiry_time, participant_id, room_mode).await {
+                    match redis_connection.update_current_bid(room_id, bid_, expiry_time, participant_id, room_mode, true).await {
                         Ok(_) => {},
                         Err(err) => {
                             if err.contains("Bid not allowed") {
@@ -362,7 +362,7 @@ pub async fn use_rtm(room_id: &str, participant_id: i32, app_state: &AppState, r
                     // delete the key and add the new bid with expiry 0 seconds
 
                     // new bid
-                    match redis_connection.update_current_bid(room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1, participant_id, room_mode).await {
+                    match redis_connection.update_current_bid(room_id, Bid::new(participant_id, bid.player_id, new_amount, bid.base_price, true, false),1, participant_id, room_mode, true).await {
                         Ok(_) => {},
                         Err(err) => {
                             if err.contains("Bid not allowed") {
@@ -386,7 +386,7 @@ pub async fn use_rtm(room_id: &str, participant_id: i32, app_state: &AppState, r
             send_himself(Message::text("The current player is not in ur team previously"), participant_id, room_id, app_state).await ;
         }
         bid.rtm_bid = true ; // it will be rtm_bid , but for remaining rtms will be same, only thing is in subscriber making sure no infinite loop takes place, where we are going to inifinetly if there previous
-        let _ = redis_connection.update_current_bid(room_id, bid, 1, -1, room_mode).await.unwrap() ;
+        let _ = redis_connection.update_current_bid(room_id, bid, 1, -1, room_mode, true).await.unwrap() ;
     }else {
         tracing::info!("Now no RTM bids were taking place") ;
         send_himself(Message::text("No RTM Bids are taking place"), participant_id, room_id, app_state).await ;
