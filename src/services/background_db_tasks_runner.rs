@@ -1,7 +1,10 @@
 use std::sync::Arc;
+use std::time::Duration;
 use axum::extract::ws::Message;
+use chrono::Utc;
+use redis::AsyncCommands;
 use crate::models::app_state::AppState;
-use crate::models::background_db_tasks::{DBCommandsAuctionRoom, DBCommandsAuction, IpInfoResponse};
+use crate::models::background_db_tasks::{DBCommandsAuctionRoom, DBCommandsAuction, IpInfoResponse, RetryEnvelope, RetryTask, BalanceUpdate, SoldPlayer, CompletedRoom, UnSoldPlayer, RoomStatus, ParticipantId};
 
 pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::sync::mpsc::UnboundedReceiver<DBCommandsAuctionRoom>) {
     tracing::info!("Background tasks executor for postgres sql started");
@@ -15,6 +18,14 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                    } ,
                     Err(err) =>{
                         tracing::error!("Failed to update remaining rtms for {} : {}", participant.id, err);
+                        app_state.redis_connection.add_retry_task(&RetryEnvelope{
+                            task: RetryTask::UpdateRemainingRTMS {
+                                participant_id: participant.id,
+                                retry_count: participant.retry_count + 1
+                            },
+                            last_error: err.to_string(),
+                            retry_count: participant.retry_count + 1
+                        }, &app_state).await.unwrap();
                     } // we need to check a way for the failed tasks, retry logics
                 } ;
             },
@@ -26,6 +37,15 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                     },
                     Err(err) => {
                         tracing::error!("error for balance update was {}", err) ;
+                        app_state.redis_connection.add_retry_task(&RetryEnvelope{
+                            task: RetryTask::BalanceUpdate {
+                                participant_id: balance_update.participant_id,
+                                remaining_balance: balance_update.remaining_balance,
+                                retry_count: balance_update.retry_count + 1
+                            },
+                            last_error: err.to_string(),
+                            retry_count: balance_update.retry_count + 1
+                        }, &app_state).await.unwrap();
                     }
                 }
             },
@@ -37,6 +57,17 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                     },
                     Err(err) => {
                         tracing::error!("error for player unsold was {}", err) ;
+                        app_state.redis_connection.add_retry_task(&RetryEnvelope{
+                            task: RetryTask::PlayerSold {
+                                room_id: player_sold.room_id,
+                                player_id: player_sold.player_id,
+                                participant_id: player_sold.participant_id,
+                                bid_amount: player_sold.bid_amount,
+                                retry_count: player_sold.retry_count + 1
+                            },
+                            last_error: err.to_string(),
+                            retry_count: player_sold.retry_count + 1
+                        }, &app_state).await.unwrap();
                     }
                 }
             },
@@ -48,6 +79,15 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                     },
                     Err(err) => {
                         tracing::error!("error for player unsold was {}", err) ;
+                        app_state.redis_connection.add_retry_task(&RetryEnvelope{
+                            task: RetryTask::PlayerUnSold {
+                                room_id: player_un_sold.room_id,
+                                player_id: player_un_sold.player_id,
+                                retry_count: player_un_sold.retry_count + 1
+                            },
+                            last_error: err.to_string(),
+                            retry_count: player_un_sold.retry_count + 1
+                        }, &app_state).await.unwrap();
                     }
                 }
             },
@@ -59,6 +99,15 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
                     },
                     Err(err) => {
                         tracing::error!("error for room-status updating {}", err) ;
+                        app_state.redis_connection.add_retry_task(&RetryEnvelope{
+                            task: RetryTask::UpdateRoomStatus {
+                                room_id: room_status.room_id,
+                                status: room_status.status,
+                                retry_count: room_status.retry_count + 1
+                            },
+                            last_error: err.to_string(),
+                            retry_count: room_status.retry_count + 1
+                        }, &app_state).await.unwrap();
                     }
                 }
             },
@@ -106,6 +155,7 @@ pub async fn background_task_executor_outside_auction_db_calls(app_state: Arc<Ap
 
 
 use reqwest::Client;
+use crate::models::background_db_tasks::RetryTask::{PlayerSold, PlayerUnSold};
 
 pub async fn get_location(ip_address: &str, api_key: &str) -> Result<String, reqwest::Error> {
     println!("Getting Location for IP Address: {}", ip_address);
@@ -146,5 +196,118 @@ pub async fn auction_completed_tasks_executor(room_id: &str, app_state: &Arc<App
     let result3 = app_state.database_connection.remove_sold_players(room_id).await ;
     let result4 = app_state.database_connection.remove_unsold_players(room_id).await ;
     let result5 = app_state.database_connection.set_completed_at(room_id).await.expect("error while updating completed_at") ;
+    /*
+        here we are going to divide each task what ever tasks failed we are going to
+    */
     tracing::info!("Successfully completed background work for complete auction room with room_id {}", room_id) ;
+}
+
+
+pub async fn listening_to_retries(app_state: Arc<AppState>) {
+
+    tokio::spawn(async move {
+        tracing::info!("starting listening to retries") ;
+        let mut redis_connection = app_state.redis_connection.connection.clone();
+        loop {
+            let now = Utc::now().timestamp();
+
+            let due_tasks: Vec<String> = redis_connection
+                .zrangebyscore(
+                    "auction:retry:zset",
+                    "-inf",
+                    now
+                )
+                .await.unwrap();
+
+            for task_json in due_tasks {
+               let _: usize =  redis_connection.zrem("auction:retry:zset", &task_json).await.expect("error while retrieving auction") ;
+
+                let envelope: RetryEnvelope = serde_json::from_str(&task_json).unwrap();
+
+                // need to figure out what envelope was it , list at least the task name
+                match envelope.task {
+                    RetryTask::BalanceUpdate{participant_id, remaining_balance,retry_count } => {
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(
+                            BalanceUpdate {
+                                participant_id, remaining_balance, retry_count
+                            }
+                        )).unwrap();
+                    },
+                    RetryTask::PlayerSold {player_id, bid_amount, participant_id, room_id,retry_count} => {
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(
+                            SoldPlayer {
+                                participant_id, player_id, bid_amount,room_id,retry_count
+                            }
+                        )).unwrap();
+                    },
+                    RetryTask::CompletedRoom {room_id,retry_count} => {
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::CompletedRoom(
+                            CompletedRoom {
+                                room_id,
+                                retry_count
+                            }
+                        )).unwrap();
+                    },
+                    RetryTask::PlayerUnSold {player_id, room_id,retry_count} => {
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerUnSold(
+                            UnSoldPlayer {
+                                player_id, room_id,retry_count
+                            }
+                        )).unwrap();
+                    },
+                    RetryTask::UpdateRoomStatus {status, room_id,retry_count} => {
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRoomStatus(
+                            RoomStatus {
+                                room_id, status,retry_count
+                            }
+                        )).unwrap();
+                    },
+                    RetryTask::UpdateRemainingRTMS {participant_id,retry_count} => {
+                        app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRemainingRTMS(
+                            ParticipantId {
+                                id: participant_id,retry_count
+                            }
+                        )).unwrap();
+                    }
+                }
+
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        tracing::warn!("Stopped listening to the retries") ;
+    }) ;
+
+}
+
+
+pub async fn save_to_DLQ(app_state: Arc<AppState>, mut rx: tokio::sync::mpsc::UnboundedReceiver<DBCommandsAuctionRoom>) {
+
+    while let Some(command) = rx.recv().await {
+        match  command {
+            DBCommandsAuctionRoom::UpdateRemainingRTMS(participant) => {
+                tracing::info!("Updating remaining rtms all retries were Exhausted");
+                
+            },
+            DBCommandsAuctionRoom::BalanceUpdate(balance_update) => {
+                tracing::info!("balance update all retries were Exhausted") ;
+
+            },
+            DBCommandsAuctionRoom::PlayerSold(player_sold) => {
+                tracing::info!("player_sold all retries were Exhausted") ;
+
+            },
+            DBCommandsAuctionRoom::PlayerUnSold(player_un_sold) => {
+                tracing::info!("player_un_sold all retries were Exhausted") ;
+
+            },
+            DBCommandsAuctionRoom::UpdateRoomStatus(room_status) => {
+                tracing::info!("Room status update all retries were Exhausted") ;
+
+            },
+            DBCommandsAuctionRoom::CompletedRoom(_) => {
+                tracing::info!("this never exists, the tasks inside this will execute independently") ;
+            },
+        };
+    }
 }

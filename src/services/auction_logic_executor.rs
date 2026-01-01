@@ -69,6 +69,7 @@ pub async fn start_auction(room_id: &str, participant_id: i32, app_state: &AppSt
                 app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRoomStatus(models::background_db_tasks::RoomStatus {
                     room_id: room_id.to_string(),
                     status: "in_progress".to_string(),
+                    retry_count: 0
                 })).map_err(|err| {
                     metrics::counter!("failed while sending update status in auction_start").increment(1);
                 }).expect("Failed to send");
