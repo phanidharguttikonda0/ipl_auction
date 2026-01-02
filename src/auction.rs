@@ -368,11 +368,19 @@ async fn socket_handler(web_socket: WebSocket, room_id: String,participant_id: i
 
                                                             // deleting the unsold players list
                                                             //app_state.database_connection.remove_unsold_players(&room_id).await.expect("error occurred while deleting unsold players") ;
+                                                            let completed_room = CompletedRoom {
+                                                                room_id: room_id.clone(),
+                                                                retry_count: 0,
+                                                                last_error: "".to_string()
+                                                            } ;
                                                             app_state.auction_room_database_task_executor.send(
-                                                                DBCommandsAuctionRoom::CompletedRoom(CompletedRoom {
-                                                                    room_id: room_id.clone(),
-                                                                    retry_count: 0
-                                                                })
+                                                                DBCommandsAuctionRoom::CompletedRoomSoldPlayers(completed_room.clone())
+                                                            ).unwrap() ;
+                                                            app_state.auction_room_database_task_executor.send(
+                                                                DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(completed_room.clone())
+                                                            ).unwrap() ;
+                                                            app_state.auction_room_database_task_executor.send(
+                                                                DBCommandsAuctionRoom::CompletedRoomCompletedAt(completed_room)
                                                             ).unwrap() ;
                                                             /*
                                                                 over here we are going to assign a background task which removes unsold players from the unsold_players table

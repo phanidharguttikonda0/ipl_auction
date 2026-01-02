@@ -4,9 +4,11 @@ use axum::extract::{State, Path};
 use axum::{Extension, Json};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use serde::Deserialize;
 use serde_json::json;
 use crate::models::app_state::{AppState, PoolPlayer};
 use crate::models::authentication_models::Claims;
+use crate::models::background_db_tasks::{BalanceUpdate, CompletedRoom, DBCommandsAuctionRoom, SoldPlayer, UnSoldPlayer};
 use crate::models::player_models::{PlayerBrought, PlayerDetails, SoldPlayerOutput, TeamDetails, UnSoldPlayerOutput};
 
 pub async fn get_team_details(State(app_state): State<Arc<AppState>>, Extension(claims):Extension<Claims>,Path(participant_id): Path<i32>) -> Result<(StatusCode, Json<TeamDetails>), (StatusCode, Json<serde_json::Value>)>{
@@ -158,3 +160,60 @@ pub async fn get_players_from_pool(State(app_state): State<Arc<AppState>>, Path(
         }
     }
 }
+
+// used for testing Dead Letter Queue Logic
+
+// #[derive(Deserialize)]
+// pub struct SellPlayer {
+//     pub player_id: i32,
+//     pub participant_id: i32,
+//     pub room_id: String,
+//     pub amount: f32
+// }
+//
+// pub async fn retry_tasks_test(State(app_state): State<Arc<AppState>>, Json(sell): Json<SellPlayer>) -> impl IntoResponse {
+//     app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerSold(
+//        SoldPlayer {
+//            room_id: sell.room_id,
+//            player_id: sell.player_id,
+//            retry_count: 0,
+//            last_error: "".to_string(),
+//            participant_id: sell.participant_id,
+//            bid_amount: sell.amount
+//        }
+//     )).expect("unable to send");
+//
+//     app_state.auction_room_database_task_executor.send(
+//         DBCommandsAuctionRoom::PlayerUnSold(
+//             UnSoldPlayer {
+//                 player_id: 1,
+//                 room_id: "f6fa7062-678c-41d6-9cc4-3714c988239c".to_string(),
+//                 retry_count: 0,
+//                 last_error: "".to_string(),
+//             }
+//         )
+//     ).expect("unable to send") ;
+//
+//     app_state.auction_room_database_task_executor.send(
+//         DBCommandsAuctionRoom::BalanceUpdate(
+//             BalanceUpdate {
+//                 participant_id: 19,
+//                 remaining_balance: 0.0,
+//                 retry_count: 0,
+//                 last_error: "".to_string(),
+//             }
+//         )
+//     ).expect("unable to send") ;
+//
+//     app_state.auction_room_database_task_executor.send(
+//         DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(
+//             CompletedRoom {
+//                 room_id: "f6fa7062-678c-41d6-9cc4-3714c988239c".to_string(),
+//                 retry_count: 0,
+//                 last_error: "".to_string()
+//             }
+//         )
+//     ).expect("unable to send") ;
+//
+//     "done executing"
+// }

@@ -92,3 +92,12 @@ CREATE INDEX idx_completed_unsold_room_id
 -- Optional: time-based queries ( not adding now , in future if needed we will add it )
 CREATE INDEX idx_completed_unsold_created_at
     ON COMPLETED_ROOMS_UNSOLD_PLAYERS (created_at);
+
+CREATE TABLE dead_letter_tasks (
+                                   id BIGSERIAL PRIMARY KEY,
+                                   task_type TEXT NOT NULL,
+                                   payload JSONB NOT NULL,
+                                   retry_count SMALLINT NOT NULL,
+                                   last_error TEXT,
+                                   created_at TIMESTAMP DEFAULT NOW()
+);

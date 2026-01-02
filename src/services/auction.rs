@@ -1,10 +1,13 @@
-use sqlx::{query_scalar, Pool, Postgres, Row};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{query_scalar, Error, Pool, Postgres, Row, Transaction};
+use sqlx::postgres::{PgPoolOptions, PgQueryResult};
 use uuid::Uuid;
 use crate::models::app_state::Player;
 use dotenv::dotenv;
 use redis::AsyncCommands;
+use serde::Serialize;
+use sqlx::types::Json;
 use crate::models::auction_models::SoldPlayer;
+use crate::models::background_db_tasks::{AuctionRoomRetryTasks, DBCommandsAuctionRoom};
 use crate::models::player_models::{PlayerDetails, SoldPlayerOutput, TeamDetails, UnSoldPlayerOutput};
 use crate::models::room_models::{Participant, ParticipantResponse, Rooms};
 
@@ -641,24 +644,24 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn remove_unsold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        tracing::info!("removing unsold players as room was closing") ;
-        let result = sqlx::query("delete from unsold_players where room_id=$1")
-            .bind(sqlx::types::Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
-            .execute(&self.connection).await ;
+        pub async fn remove_unsold_players( tx: &mut Transaction<'_, Postgres>, room_id: &str) -> Result<(), sqlx::Error> {
+            tracing::info!("removing unsold players as room was closing") ;
+            let result: Result<PgQueryResult, Error> = sqlx::query("delete from unsold_players where room_id=$1")
+                .bind(Uuid::parse_str(&room_id).expect("unable to parse the UUID"))
+                .execute(&mut **tx).await ;
 
-        tracing::info!("query executed") ;
-        match result {
-            Ok(result) => {
-                tracing::info!("deleted the unsold players from the room_id") ;
-                Ok(())
-            },
-            Err(err) => {
-                tracing::error!("error occurred while removing unsold players {}",err) ;
-                Err(err)
+            tracing::info!("query executed") ;
+            match result {
+                Ok(result) => {
+                    tracing::info!("deleted the unsold players from the room_id") ;
+                    Ok(())
+                },
+                Err(err) => {
+                    tracing::error!("error occurred while removing unsold players {}",err) ;
+                    Err(err)
+                }
             }
         }
-    }
 
 
     pub async fn set_completed_at(&self, room_id: &str) -> Result<(), sqlx::Error> {
@@ -724,9 +727,9 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn add_to_completed_room_sold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn add_to_completed_room_sold_players(tx: &mut Transaction<'_, Postgres>, room_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!("adding to completed rooms sold players table") ;
-        let query_result = sqlx::query("
+        let query_result: Result<PgQueryResult, Error> = sqlx::query("
         INSERT INTO COMPLETED_ROOMS_SOLD_PLAYERS (
         player_id,
         participant_id,
@@ -741,8 +744,8 @@ impl DatabaseAccess {
         created_at
         FROM sold_players
         WHERE room_id = $1
-        ").bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
-            .execute(&self.connection).await ;
+        ").bind(Uuid::parse_str(room_id).expect("unable to parse the UUID"))
+            .execute(&mut **tx).await ;
 
         match query_result {
             Ok(result) => {
@@ -761,9 +764,9 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn add_to_completed_room_unsold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn add_to_completed_room_unsold_players(tx: &mut Transaction<'_, Postgres>, room_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!("adding to completed rooms unsold players table") ;
-        let query_result = sqlx::query("
+        let query_result: Result<PgQueryResult, Error> = sqlx::query("
             INSERT INTO COMPLETED_ROOMS_UNSOLD_PLAYERS (
                 player_id,
                 room_id,
@@ -776,8 +779,8 @@ impl DatabaseAccess {
             FROM unsold_players
             WHERE room_id = $1
         ")
-        .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
-        .execute(&self.connection).await ;
+        .bind(Uuid::parse_str(room_id).expect("unable to parse the UUID"))
+        .execute(&mut **tx).await ;
 
         match query_result {
             Ok(result) => {
@@ -796,12 +799,12 @@ impl DatabaseAccess {
         }
     }
 
-    pub async fn remove_sold_players(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn remove_sold_players(tx: &mut Transaction<'_, Postgres>, room_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!("removing sold players from sold players table") ;
-        let query_result = sqlx::query("
-        DELETE FROM sold_players where room_id = $1")
-            .bind(sqlx::types::Uuid::parse_str(room_id).expect("unable to parse the UUID"))
-            .execute(&self.connection).await ;
+        let query_result: Result<PgQueryResult, Error> = sqlx::query("
+            DELETE FROM sold_players where room_id = $1")
+            .bind(Uuid::parse_str(room_id).expect("unable to parse the UUID"))
+            .execute(&mut **tx).await ;
         match query_result {
             Ok(result) => {
                 let total_rows_deleted = result.rows_affected() ;
@@ -819,5 +822,26 @@ impl DatabaseAccess {
         }
     }
 
+
+    pub async fn add_to_dlq<T: AuctionRoomRetryTasks + Serialize>(&self, task_type: &str, payload: T, retry_count: i16, last_error: &str) -> Result<(), sqlx::Error> {
+        tracing::info!("adding the task to the dlq") ;
+        let result = sqlx::query("insert into dead_letter_tasks (task_type, payload, retry_count, last_error) values ($1, $2::jsonb, $3, $4)")
+            .bind(task_type)
+            .bind(Json(payload))
+            .bind(retry_count)
+            .bind(last_error)
+            .execute(&self.connection).await ;
+
+        match result {
+            Ok(_) => {
+                tracing::info!("successfully added the following task to the DLQ") ;
+                Ok(())
+            },
+            Err(err) => {
+                tracing::error!("error while adding to dlq") ;
+                Err(err)
+            }
+        }
+    }
 
 }
