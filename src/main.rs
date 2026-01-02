@@ -1,30 +1,28 @@
-use std::fmt::format;
+
 use std::net::SocketAddr;
 use std::sync::{Arc};
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use axum::{http, middleware, Router};
-use axum::extract::ws::Message;
+
 use axum::http::{header, Method};
 use axum::routing::{get, post};
 use dotenv::dotenv;
-use tokio::task;
+
 use crate::auction::ws_handler;
-use crate::middlewares::authentication::auth_check;
+
 use crate::models::app_state::AppState;
 use crate::routes::players_routes::players_routes;
 use crate::routes::rooms_routes::rooms_routes;
 use crate::services::auction::DatabaseAccess;
 use crate::services::auction_room::listen_for_expiry_events;
 use crate::services::other::load_players_to_redis;
-use tower_http::cors::{CorsLayer, Any};
-use tower::ServiceBuilder;
+use tower_http::cors::{CorsLayer};
 use crate::controllers::others::feed_back;
 use crate::controllers::profile::update_favorite_team;
 use crate::models::background_db_tasks::{DBCommandsAuction, DBCommandsAuctionRoom};
 use crate::routes::admin_routes::admin_routes;
-use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor};
-use tracing_appender::non_blocking;
+use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor, listening_to_retries, save_to_DLQ};
 use crate::observability::http_tracing::http_trace_layer;
 use crate::observability::metrics::init_metrics;
 
@@ -64,18 +62,20 @@ async fn main() {
 async fn routes() -> Router {
     let (tx, mut rx) = mpsc::unbounded_channel::<DBCommandsAuctionRoom>();
     let (tx_outside_auction_d, mut rx_outside_auction_d) = mpsc::unbounded_channel::<DBCommandsAuction>();
+    let (tx_dql, mut rx_dql) = mpsc::unbounded_channel::<DBCommandsAuctionRoom>();
     let state = Arc::new(
         AppState {
             rooms: Arc::new(RwLock::new(std::collections::HashMap::new())),
             database_connection: Arc::from(DatabaseAccess::new().await),
             auction_room_database_task_executor: tx,
             database_task_executor: tx_outside_auction_d,
-            redis_connection: Arc::new(services::auction_room::RedisConnection::new().await)
+            redis_connection: Arc::new(services::auction_room::RedisConnection::new().await),
+            dlq_task_executor: tx_dql
         }
     ) ;
     let redis_url = std::env::var("REDIS_URL").unwrap();
     let state_ = state.clone();
-    task::spawn(async move {
+    tokio::spawn(async move {
         let state = state_;
         loop {
             if let Err(e) = listen_for_expiry_events(&format!("redis://{}:6379/", redis_url), &state).await {
@@ -85,6 +85,12 @@ async fn routes() -> Router {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+    
+    tracing::info!("spawning DLQ task executor") ;
+    let state_ = state.clone() ;
+    tokio::spawn(async move {
+        save_to_DLQ(state_, rx_dql).await ;;
+    }) ;
     
     tracing::info!("tracing of the background tasks executor for inside auction room db tasks was called") ;
     let state_ = state.clone() ;
@@ -97,7 +103,7 @@ async fn routes() -> Router {
     tokio::spawn(async move {
        background_task_executor_outside_auction_db_calls(state_, rx_outside_auction_d).await ; 
     });
-
+    listening_to_retries(state.clone()).await ;
     // Configure CORS
     let cors = CorsLayer::new()
         .allow_origin([
@@ -143,6 +149,7 @@ async fn routes() -> Router {
             tracing::info!("Health check passed") ;
             async { Ok::<_, std::convert::Infallible>("Health check passed") }
         }))
+        // .route("/retry-tasks_test", post(retry_tasks_test)) used for testing Dead Letter Queue Logic
         .layer(http_trace_layer())
         .with_state(state);
 

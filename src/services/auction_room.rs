@@ -7,14 +7,14 @@ use crate::models::auction_models::{AuctionParticipant, Bid, RoomMeta, SoldPlaye
 
 #[derive(Debug, Clone)]
 pub struct RedisConnection {
-    connection: redis::aio::MultiplexedConnection,
+    pub connection: redis::aio::MultiplexedConnection,
 }
 
 impl RedisConnection {
     pub async fn new() -> Self {
         let connection_url = std::env::var("REDIS_URL").unwrap();
         Self {
-            connection: redis::Client::open(format!("redis://{}:6379/",connection_url)).unwrap().get_multiplexed_async_connection().await.unwrap(),
+            connection: Client::open(format!("redis://{}:6379/",connection_url)).unwrap().get_multiplexed_async_connection().await.unwrap(),
         }
     }
 
@@ -875,7 +875,59 @@ impl RedisConnection {
     // this is enough to check whether the participant or the room exists or not
 
 
+    pub async fn add_retry_task(&self, val: &DBCommandsAuctionRoom, app_state: &AppState) -> Result<(), redis::RedisError> {
 
+        let retry_count = match val.clone() {
+            DBCommandsAuctionRoom::PlayerSold(player_sold) => {
+
+                player_sold.retry_count
+            },
+            DBCommandsAuctionRoom::BalanceUpdate(balance_update) => {
+                balance_update.retry_count
+            },
+            DBCommandsAuctionRoom::PlayerUnSold(unsold_player) => {
+                unsold_player.retry_count
+            },
+            DBCommandsAuctionRoom::UpdateRoomStatus(room_status_update) => {
+                room_status_update.retry_count
+            },
+            DBCommandsAuctionRoom::UpdateRemainingRTMS(remaining_rtms) => {
+                remaining_rtms.retry_count
+            },
+            DBCommandsAuctionRoom::CompletedRoomCompletedAt(completed_room) => {
+                completed_room.retry_count
+            },
+            DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(completed_room) => {
+                completed_room.retry_count
+            },
+            DBCommandsAuctionRoom::CompletedRoomSoldPlayers(completed_room) => {
+                completed_room.retry_count
+            }
+        } ;
+
+        let retry_delay = match retry_count{
+            0 => 12,  // 2 minutes
+            1 => 30,  // 5 minutes
+            2 => 60,  // 10 minutes
+            _ => {
+                tracing::info!("moving to Dead Letter Queue, all retries are exhausted") ;
+
+                // moving to DLQ
+                app_state.dlq_task_executor.send(val.clone()).unwrap() ;
+                return Ok(())
+            }
+        };
+
+
+
+        let retry_at = Utc::now().timestamp() + retry_delay;
+        let mut conn = self.connection.clone();
+        let _: usize = conn
+            .zadd("auction:retry:zset", serde_json::to_string(val).unwrap(), retry_at)
+            .await?;
+
+        Ok(())
+    }
 
 }
 
@@ -883,13 +935,11 @@ impl RedisConnection {
 
 // -------------------------- Spawning the task for expiry bid logic ------------------------------------
 use tokio_stream::StreamExt;
-use redis::{Client, aio::PubSub};
+use redis::{Client};
 use axum::extract::ws::{Message};
-use futures_util::future::err;
-use serde_json::Error;
+use chrono::Utc;
 use crate::models;
-use crate::models::background_db_tasks::{DBCommandsAuctionRoom};
-use crate::models::room_models::Participant;
+use crate::models::background_db_tasks::{CompletedRoom, DBCommandsAuctionRoom, ParticipantId, RoomStatus, UnSoldPlayer};
 use crate::services::other::get_previous_team_full_name;
 
 pub async fn listen_for_expiry_events(redis_url: &str, app_state: &Arc<AppState>) -> redis::RedisResult<()> {
@@ -975,7 +1025,9 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
             // redis_connection.update_remaining_rtms(room_id.clone(), participant_id).await?;
             // we are going to update in the sql as well.
             app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::UpdateRemainingRTMS(models::background_db_tasks::ParticipantId{
-                id: bid.participant_id
+                id: bid.participant_id,
+                retry_count: 0,
+                last_error: String::from("")
             })).expect("Error while sending participant id for updating rtms to a unbounded channel") ;
             redis_connection.decrement_rtm(room_id, participant_id).await.unwrap() ;
             remaining_rtms -= 1 ;
@@ -986,7 +1038,9 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
             room_id: room_id.to_string(),
             player_id: bid.player_id,
             participant_id: bid.participant_id,
-            bid_amount: bid.bid_amount
+            bid_amount: bid.bid_amount,
+            retry_count: 0,
+            last_error: String::from("")
         })).expect("Error While adding Player sold to the unbounded channel") ;
         let remaining_balance = round_two_decimals(participant.balance -  bid.bid_amount);
         redis_connection.increment_total_players_brought(room_id, participant_id).await.expect("error while updating total players brought") ;
@@ -998,7 +1052,9 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
         // updating the participant balance in the participant table
         app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
             participant_id: bid.participant_id,
-            remaining_balance
+            remaining_balance,
+            retry_count: 0,
+            last_error: String::from("")
         })).expect("Error While update balance to the unbounded channel") ;
         tracing::info!("successfully updated the balance in the psql") ;
         tracing::info!("updating in the redis along with the balance and bid") ;
@@ -1141,19 +1197,25 @@ pub async fn handling_expiry_events(app_state: &Arc<AppState>, room_id: &str,is_
                     room_id: room_id.to_string(),
                     player_id: current_bid.player_id,
                     participant_id: current_bid.participant_id,
-                    bid_amount: current_bid.bid_amount
+                    bid_amount: current_bid.bid_amount,
+                    retry_count: 0,
+                    last_error: String::from("")
                 })).expect("Error While adding Player sold to the unbounded channel") ;
                 // updating the participant balance in the participant table
                 app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::BalanceUpdate(models::background_db_tasks::BalanceUpdate {
                     participant_id: current_bid.participant_id,
-                    remaining_balance
+                    remaining_balance,
+                    retry_count: 0,
+                    last_error: String::from("")
                 })).expect("Error While update balance to the unbounded channel") ;
                 tracing::info!("successfully updated the balance in the psql") ;
             }else {
                 tracing::info!("player was an unsold player") ;
                 app_state.auction_room_database_task_executor.send(DBCommandsAuctionRoom::PlayerUnSold(models::background_db_tasks::UnSoldPlayer {
                     room_id: room_id.to_string(),
-                    player_id: current_bid.player_id
+                    player_id: current_bid.player_id,
+                    retry_count: 0,
+                    last_error: String::from("")
                 })).expect("Error While adding Player Unsold to the unbounded channel") ;
             }
             sold = true ;

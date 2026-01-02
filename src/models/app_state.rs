@@ -15,7 +15,8 @@ pub struct AppState {
     pub database_connection: Arc<DatabaseAccess>,
     pub auction_room_database_task_executor: tokio::sync::mpsc::UnboundedSender<DBCommandsAuctionRoom>,
     pub database_task_executor: tokio::sync::mpsc::UnboundedSender<DBCommandsAuction>,
-    pub redis_connection: Arc<RedisConnection>
+    pub redis_connection: Arc<RedisConnection>,
+    pub dlq_task_executor: tokio::sync::mpsc::UnboundedSender<DBCommandsAuctionRoom>,
 }
 
 #[derive(Debug,Clone, FromRedisValue, ToRedisArgs, Serialize, Deserialize, sqlx::FromRow)]
