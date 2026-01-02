@@ -675,6 +675,10 @@ pub async fn bid_allowance_handler(
     strict_mode: bool,
 ) -> bool {
 
+    if total_players_brought >= 25 {
+        return false ;
+    }
+
     tracing::warn!("Strict mode was {}", strict_mode) ;
     let remaining_balance = balance - current_bid;
     if remaining_balance < 0.0 {
