@@ -491,6 +491,21 @@ Arc<RwLock<HashMap<String, Vec<(i32, UnboundedSender<Message>)>>>>
 - Protected by async read-write lock
 - Cleaned up on disconnection
 
+## Future Horizontal Scaling
+WebSocket Horizontal Scaling Using Pub/Sub / Message Brokers
+
+To support horizontal scaling and handle high concurrent participation, the application is designed to run multiple WebSocket servers behind a load balancer. Each WebSocket server maintains only the connections that are directly established with it and does not depend on other servers’ in-memory state.
+
+Participants connected to a single auction room may be distributed across multiple WebSocket servers. For example, in a setup with three WebSocket servers, participants P1–P5 may be connected to Server-1, P6–P8 to Server-2, and the remaining participants to Server-3. Each server tracks only its locally connected participants for a given room.
+
+When a participant sends a message (such as placing a bid), the message is first received by the WebSocket server handling that participant’s connection. Instead of directly broadcasting the message to other WebSocket servers, the server publishes the event to a centralized messaging layer such as Redis Pub/Sub, Kafka, or RabbitMQ.
+
+All WebSocket servers subscribe to relevant room-level events from the messaging layer. Upon receiving an event, each server independently fans out the message to the participants connected to that server for the corresponding room. This ensures that all participants in the room receive real-time updates, regardless of which WebSocket server they are connected to.
+
+This architecture keeps WebSocket servers stateless with respect to auction logic and room ownership, enables seamless horizontal scaling, and ensures fault tolerance. If a WebSocket server fails, only its active connections are affected, while the auction state and event propagation remain intact through the centralized messaging system.
+
+#### Each WS server manages only its own connections; Pub/Sub ensures all servers react to room events and fan-out updates locally.
+
 ---
 
 ## HTTP API Endpoints
