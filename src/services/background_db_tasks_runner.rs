@@ -11,160 +11,195 @@ pub async fn background_tasks_executor(app_state: Arc<AppState>, mut rx: tokio::
         match command {
             DBCommandsAuctionRoom::UpdateRemainingRTMS(mut participant) => {
                 tracing::info!("Updating remaining rtms for {}", participant.id);
-                match app_state.database_connection.update_remaining_rtms(participant.id).await {
-                   Ok(_res) => {
-                       tracing::info!("Updated remaining rtms for {}", participant.id);
-                   } ,
-                    Err(err) =>{
-                        tracing::error!("Failed to update remaining rtms for {} : {}", participant.id, err);
-                        participant.retry_count += 1 ;
-                        participant.last_error =  err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::UpdateRemainingRTMS(participant), &app_state).await.unwrap();
-                    } // we need to check a way for the failed tasks, retry logics
-                } ;
+                let state = app_state.clone() ;
+                tokio::task::spawn(async move {
+                    let app_state = state ;
+                    match app_state.database_connection.update_remaining_rtms(participant.id).await {
+                        Ok(_res) => {
+                            tracing::info!("Updated remaining rtms for {}", participant.id);
+                        } ,
+                        Err(err) =>{
+                            tracing::error!("Failed to update remaining rtms for {} : {}", participant.id, err);
+                            participant.retry_count += 1 ;
+                            participant.last_error =  err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::UpdateRemainingRTMS(participant), &app_state).await.unwrap();
+                        } // we need to check a way for the failed tasks, retry logics
+                    } ;
+                }) ;
+
             },
             DBCommandsAuctionRoom::BalanceUpdate(mut balance_update) => {
                 tracing::info!("balance update was being called") ;
-                match app_state.database_connection.update_balance(balance_update.participant_id, balance_update.remaining_balance).await {
-                    Ok(_res) => {
-                        tracing::info!("balance successfully updated") ;
-                    },
-                    Err(err) => {
-                        tracing::error!("error for balance update was {}", err) ;
-                        balance_update.retry_count += 1 ;
-                        balance_update.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::BalanceUpdate(balance_update), &app_state).await.unwrap();
+                let state = app_state.clone() ;
+                tokio::task::spawn(async move {
+                    let app_state = state ;
+                    match app_state.database_connection.update_balance(balance_update.participant_id, balance_update.remaining_balance).await {
+                        Ok(_res) => {
+                            tracing::info!("balance successfully updated") ;
+                        },
+                        Err(err) => {
+                            tracing::error!("error for balance update was {}", err) ;
+                            balance_update.retry_count += 1 ;
+                            balance_update.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::BalanceUpdate(balance_update), &app_state).await.unwrap();
+                        }
                     }
-                }
+                }) ;
+
             },
             DBCommandsAuctionRoom::PlayerSold(mut player_sold) => {
                 tracing::info!("player_sold was being being executed as a background task") ;
-                match app_state.database_connection.add_sold_player(&player_sold.room_id,player_sold.player_id,player_sold.participant_id, player_sold.bid_amount).await {
-                    Ok(_res) => {
-                        tracing::info!("successfully executed the add_sold_player") ;
-                    },
-                    Err(err) => {
-                        tracing::error!("error for player unsold was {}", err) ;
-                        player_sold.retry_count += 1 ;
-                        player_sold.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::PlayerSold(player_sold), &app_state).await.unwrap();
+                let state = app_state.clone() ;
+                tokio::task::spawn(async move {
+                    let app_state = state ;
+                    match app_state.database_connection.add_sold_player(&player_sold.room_id,player_sold.player_id,player_sold.participant_id, player_sold.bid_amount).await {
+                        Ok(_res) => {
+                            tracing::info!("successfully executed the add_sold_player") ;
+                        },
+                        Err(err) => {
+                            tracing::error!("error for player unsold was {}", err) ;
+                            player_sold.retry_count += 1 ;
+                            player_sold.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::PlayerSold(player_sold), &app_state).await.unwrap();
+                        }
                     }
-                }
+                }) ;
+
             },
             DBCommandsAuctionRoom::PlayerUnSold(mut player_un_sold) => {
                 tracing::info!("player_un_sold was being executed as a background task") ;
-                match app_state.database_connection.add_unsold_player(&player_un_sold.room_id,player_un_sold.player_id).await {
-                    Ok(_res) => {
-                        tracing::info!("successfully executed player unsold") ;
-                    },
-                    Err(err) => {
-                        tracing::error!("error for player unsold was {}", err) ;
-                        player_un_sold.retry_count += 1 ;
-                        player_un_sold.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::PlayerUnSold(player_un_sold), &app_state).await.unwrap();
+                let state = app_state.clone() ;
+                tokio::task::spawn(async move {
+                    let app_state = state ;
+                    match app_state.database_connection.add_unsold_player(&player_un_sold.room_id,player_un_sold.player_id).await {
+                        Ok(_res) => {
+                            tracing::info!("successfully executed player unsold") ;
+                        },
+                        Err(err) => {
+                            tracing::error!("error for player unsold was {}", err) ;
+                            player_un_sold.retry_count += 1 ;
+                            player_un_sold.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::PlayerUnSold(player_un_sold), &app_state).await.unwrap();
+                        }
                     }
-                }
+                }) ;
             },
             DBCommandsAuctionRoom::UpdateRoomStatus(mut room_status) => {
                 tracing::info!("Room status update was being executed as background task") ;
-                match app_state.database_connection.update_room_status(&room_status.room_id, &room_status.status).await {
-                    Ok(_res) => {
-                        tracing::info!("successfully executed update room-status") ;
-                    },
-                    Err(err) => {
-                        tracing::error!("error for room-status updating {}", err) ;
-                        room_status.retry_count += 1 ;
-                        room_status.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::UpdateRoomStatus(
-                            room_status
-                        ), &app_state).await.unwrap();
+                let state = app_state.clone() ;
+                tokio::spawn(async move {
+                    let app_state = state ;
+                    match app_state.database_connection.update_room_status(&room_status.room_id, &room_status.status).await {
+                        Ok(_res) => {
+                            tracing::info!("successfully executed update room-status") ;
+                        },
+                        Err(err) => {
+                            tracing::error!("error for room-status updating {}", err) ;
+                            room_status.retry_count += 1 ;
+                            room_status.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::UpdateRoomStatus(
+                                room_status
+                            ), &app_state).await.unwrap();
+                        }
                     }
-                }
+                }) ;
             },
             DBCommandsAuctionRoom::CompletedRoomCompletedAt(mut completed_room) => {
                 tracing::info!("updating completed_at") ;
-                match app_state.database_connection.set_completed_at(&completed_room.room_id).await {
-                    Ok(_) => {
-                        tracing::info!("successfully updated completed_at for room_id {}", completed_room.room_id) ;
-                    },
-                    Err(err) => {
-                        tracing::error!("error while updating the completedAt for room_id {} and error was {}", completed_room.room_id, err.to_string()) ;
-                        completed_room.retry_count += 1 ;
-                        completed_room.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomCompletedAt(
-                            completed_room
-                        ), &app_state).await.unwrap();
+                let state = app_state.clone() ;
+                tokio::spawn(async move {
+                    let app_state = state.clone() ;
+                    match app_state.database_connection.set_completed_at(&completed_room.room_id).await {
+                        Ok(_) => {
+                            tracing::info!("successfully updated completed_at for room_id {}", completed_room.room_id) ;
+                        },
+                        Err(err) => {
+                            tracing::error!("error while updating the completedAt for room_id {} and error was {}", completed_room.room_id, err.to_string()) ;
+                            completed_room.retry_count += 1 ;
+                            completed_room.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomCompletedAt(
+                                completed_room
+                            ), &app_state).await.unwrap();
+                        }
                     }
-                }
+                }) ;
             },
             DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(mut completed_room) => {
                 tracing::info!("completed unsold players") ;
-                // we need to make sure an atomicity to be takes place
-                let mut tx: Transaction<Postgres> = app_state.database_connection.connection.begin().await.expect("") ;
-                // firstly move the players to the completed rooms unsold players table
-                match DatabaseAccess::add_to_completed_room_unsold_players(&mut tx, &completed_room.room_id).await {
-                    Ok(_) => {
-                        tracing::info!("sucessfully add unsold players to completed_rooms table for room_id {}", completed_room.room_id) ;
+                let state = app_state.clone() ;
+                tokio::spawn(async move {
+                    let app_state = state.clone() ;
+                    // we need to make sure an atomicity to be takes place
+                    let mut tx: Transaction<Postgres> = app_state.database_connection.connection.begin().await.expect("") ;
+                    // firstly move the players to the completed rooms unsold players table
+                    match DatabaseAccess::add_to_completed_room_unsold_players(&mut tx, &completed_room.room_id).await {
+                        Ok(_) => {
+                            tracing::info!("sucessfully add unsold players to completed_rooms table for room_id {}", completed_room.room_id) ;
 
-                        match DatabaseAccess::remove_unsold_players(&mut tx, &completed_room.room_id).await {
-                            Ok(_) => {
-                                tx.commit().await.expect("unable to commit transaction") ;
-                                tracing::info!("successfully removed unsold players from unsold_players room for room_id {}", completed_room.room_id) ;
-                            },
-                            Err(err) => {
-                                tx.rollback().await.expect("unable to rollback") ;
-                                completed_room.retry_count += 1 ;
-                                completed_room.last_error = err.to_string() ;
-                                app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(
-                                    completed_room
-                                ), &app_state).await.unwrap();
+                            match DatabaseAccess::remove_unsold_players(&mut tx, &completed_room.room_id).await {
+                                Ok(_) => {
+                                    tx.commit().await.expect("unable to commit transaction") ;
+                                    tracing::info!("successfully removed unsold players from unsold_players room for room_id {}", completed_room.room_id) ;
+                                },
+                                Err(err) => {
+                                    tx.rollback().await.expect("unable to rollback") ;
+                                    completed_room.retry_count += 1 ;
+                                    completed_room.last_error = err.to_string() ;
+                                    app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(
+                                        completed_room
+                                    ), &app_state).await.unwrap();
+                                }
                             }
+                        },
+                        Err(err) => {
+                            tx.rollback().await.expect("unable to rollback") ;
+                            completed_room.retry_count += 1 ;
+                            completed_room.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(
+                                completed_room
+                            ), &app_state).await.unwrap();
                         }
-                    },
-                    Err(err) => {
-                        tx.rollback().await.expect("unable to rollback") ;
-                        completed_room.retry_count += 1 ;
-                        completed_room.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomUnsoldPlayers(
-                            completed_room
-                        ), &app_state).await.unwrap();
                     }
-                }
+                }) ;
 
             },
             DBCommandsAuctionRoom::CompletedRoomSoldPlayers(mut completed_room) => {
                 tracing::info!("completed sold players") ;
                 // we need to make sure an atomicity to be takes place
-                let mut tx: Transaction<Postgres> = app_state.database_connection.connection.begin().await.expect("") ;
-                // firstly move the players to the completed rooms unsold players table
-                match DatabaseAccess::add_to_completed_room_sold_players(&mut tx, &completed_room.room_id).await {
-                    Ok(_) => {
-                        tracing::info!("successfully add sold players to completed_rooms table for room_id {}", completed_room.room_id) ;
+                let state = app_state.clone() ;
+                tokio::spawn(async move {
+                    let app_state = state ;
+                    let mut tx: Transaction<Postgres> = app_state.database_connection.connection.begin().await.expect("") ;
+                    // firstly move the players to the completed rooms unsold players table
+                    match DatabaseAccess::add_to_completed_room_sold_players(&mut tx, &completed_room.room_id).await {
+                        Ok(_) => {
+                            tracing::info!("successfully add sold players to completed_rooms table for room_id {}", completed_room.room_id) ;
 
-                        match DatabaseAccess::remove_sold_players(&mut tx, &completed_room.room_id).await {
-                            Ok(_) => {
-                                tx.commit().await.expect("unable to commit transaction") ;
-                                tracing::info!("successfully removed sold players from sold_players room for room_id {}", completed_room.room_id) ;
-                            },
-                            Err(err) => {
-                                tx.rollback().await.expect("unable to rollback") ;
-                                completed_room.retry_count += 1 ;
-                                completed_room.last_error = err.to_string() ;
-                                app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomSoldPlayers(
-                                    completed_room
-                                ), &app_state).await.unwrap();
+                            match DatabaseAccess::remove_sold_players(&mut tx, &completed_room.room_id).await {
+                                Ok(_) => {
+                                    tx.commit().await.expect("unable to commit transaction") ;
+                                    tracing::info!("successfully removed sold players from sold_players room for room_id {}", completed_room.room_id) ;
+                                },
+                                Err(err) => {
+                                    tx.rollback().await.expect("unable to rollback") ;
+                                    completed_room.retry_count += 1 ;
+                                    completed_room.last_error = err.to_string() ;
+                                    app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomSoldPlayers(
+                                        completed_room
+                                    ), &app_state).await.unwrap();
+                                }
                             }
+                        },
+                        Err(err) => {
+                            tx.rollback().await.expect("unable to rollback") ;
+                            completed_room.retry_count += 1 ;
+                            completed_room.last_error = err.to_string() ;
+                            app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomSoldPlayers(
+                                completed_room
+                            ), &app_state).await.unwrap();
                         }
-                    },
-                    Err(err) => {
-                        tx.rollback().await.expect("unable to rollback") ;
-                        completed_room.retry_count += 1 ;
-                        completed_room.last_error = err.to_string() ;
-                        app_state.redis_connection.add_retry_task(&DBCommandsAuctionRoom::CompletedRoomSoldPlayers(
-                            completed_room
-                        ), &app_state).await.unwrap();
                     }
-                }
+                }) ;
             }
         }
     }
