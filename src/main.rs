@@ -25,6 +25,7 @@ use crate::routes::admin_routes::admin_routes;
 use crate::services::background_db_tasks_runner::{background_task_executor_outside_auction_db_calls, background_tasks_executor, listening_to_retries, save_to_DLQ};
 use crate::observability::http_tracing::http_trace_layer;
 use crate::observability::metrics::init_metrics;
+use crate::services::cron_job::cron_job_making_room_status_to_completed_every_48_hours;
 
 mod models;
 mod auction;
@@ -73,6 +74,7 @@ async fn routes() -> Router {
             dlq_task_executor: tx_dql
         }
     ) ;
+    cron_job_making_room_status_to_completed_every_48_hours(state.clone()) ;
     let redis_url = std::env::var("REDIS_URL").unwrap();
     let state_ = state.clone();
     tokio::spawn(async move {
